@@ -31,20 +31,36 @@ from kokoro import KModel, KPipeline
 import os
 from pathlib import Path
 # 获取项目根目录
-# 优先使用当前工作目录作为基准
-PROJECT_ROOT = Path.cwd()
-SHARED_MODELS_DIR = PROJECT_ROOT / "models"
+# 尝试多个可能的路径来找到models目录
+potential_paths = [
+    # 当前工作目录
+    Path.cwd() / "models",
+    # 当前文件的父目录的父目录
+    Path(__file__).parent.parent / "models",
+    # 当前文件的父目录的父目录的父目录
+    Path(__file__).parent.parent.parent / "models",
+    # 硬编码的项目根目录路径（相对于脚本位置）
+    Path(__file__).resolve().parent.parent.parent / "models",
+    # Docker容器中的路径
+    Path("/app/models")
+]
 
-# 如果模型目录不存在，尝试其他路径
-if not SHARED_MODELS_DIR.exists():
-    # 尝试基于当前文件的路径
-    PROJECT_ROOT = Path(__file__).parent.parent
-    SHARED_MODELS_DIR = PROJECT_ROOT / "models"
+# 找到第一个存在的models目录
+SHARED_MODELS_DIR = None
+for path in potential_paths:
+    if path.exists():
+        SHARED_MODELS_DIR = path
+        break
 
-# 如果模型目录仍然不存在，使用绝对路径
-if not SHARED_MODELS_DIR.exists():
-    # 在Docker容器中，模型应该在/app/models
-    SHARED_MODELS_DIR = Path("/app/models")
+# 如果还是找不到，使用当前工作目录下的models
+if SHARED_MODELS_DIR is None:
+    SHARED_MODELS_DIR = Path.cwd() / "models"
+
+# 打印找到的模型路径
+print(f"模型路径搜索结果:")
+for path in potential_paths:
+    print(f"{path}: {'存在' if path.exists() else '不存在'}")
+print(f"最终使用的模型路径: {SHARED_MODELS_DIR}")
 
 # 猴子补丁：修改KModel.MODEL_NAMES字典，添加本地模型路径
 KModel.MODEL_NAMES[str(SHARED_MODELS_DIR)] = 'kokoro-v1_1-zh.pth'
