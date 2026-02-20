@@ -30,9 +30,21 @@ from kokoro import KModel, KPipeline
 # 获取项目根目录
 import os
 from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# 获取项目根目录
+# 优先使用当前工作目录作为基准
+PROJECT_ROOT = Path.cwd()
 SHARED_MODELS_DIR = PROJECT_ROOT / "models"
+
+# 如果模型目录不存在，尝试其他路径
+if not SHARED_MODELS_DIR.exists():
+    # 尝试基于当前文件的路径
+    PROJECT_ROOT = Path(__file__).parent.parent
+    SHARED_MODELS_DIR = PROJECT_ROOT / "models"
+
+# 如果模型目录仍然不存在，使用绝对路径
+if not SHARED_MODELS_DIR.exists():
+    # 在Docker容器中，模型应该在/app/models
+    SHARED_MODELS_DIR = Path("/app/models")
 
 # 猴子补丁：修改KModel.MODEL_NAMES字典，添加本地模型路径
 KModel.MODEL_NAMES[str(SHARED_MODELS_DIR)] = 'kokoro-v1_1-zh.pth'

@@ -18,6 +18,6 @@ RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://
 # 然后安装其他依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-EXPOSE 5000
+EXPOSE 8000
 
 CMD ["python", "app/main.py"]

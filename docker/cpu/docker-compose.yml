@@ -4,11 +4,10 @@ services:
       context: ../..
       dockerfile: docker/cpu/Dockerfile
     ports:
-      - "8100:5000"
+      - "8100:8000"
     environment:
       - PYTHONUNBUFFERED=1
     restart: always
-    command: python app/main.py
     deploy:
       resources:
         limits:
