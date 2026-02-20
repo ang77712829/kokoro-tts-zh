@@ -54,10 +54,10 @@ if SHARED_MODELS_DIR is None:
     SHARED_MODELS_DIR = Path.cwd() / "models"
 
 # 打印找到的模型路径
-print(f"模型路径搜索结果:")
+print(f"模型路径搜索结果:", flush=True)
 for path in potential_paths:
-    print(f"{path}: {'存在' if path.exists() else '不存在'}")
-print(f"最终使用的模型路径: {SHARED_MODELS_DIR}")
+    print(f"{path}: {'存在' if path.exists() else '不存在'}", flush=True)
+print(f"最终使用的模型路径: {SHARED_MODELS_DIR}", flush=True)
 
 # 猴子补丁：修改KModel.MODEL_NAMES字典，添加本地模型路径
 KModel.MODEL_NAMES[str(SHARED_MODELS_DIR)] = 'kokoro-v1_1-zh.pth'
@@ -79,8 +79,8 @@ SAMPLE_RATE = 24000
 # 加载模型
 device = 'cpu'  # 使用CPU推理
 model = KModel(repo_id=MODEL_PATH).to(device).eval()
-print(f"模型加载成功，使用{device}进行推理")
-print(f"模型路径: {MODEL_PATH}")
+print(f"模型加载成功，使用{device}进行推理", flush=True)
+print(f"模型路径: {MODEL_PATH}", flush=True)
 
 # 创建英文pipeline
 en_pipeline = KPipeline(lang_code='a', repo_id=MODEL_PATH, model=False)

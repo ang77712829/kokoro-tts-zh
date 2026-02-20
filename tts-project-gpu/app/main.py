@@ -57,10 +57,10 @@ if SHARED_MODELS_DIR is None:
     SHARED_MODELS_DIR = Path.cwd() / "models"
 
 # 打印找到的模型路径
-print(f"模型路径搜索结果:")
+print(f"模型路径搜索结果:", flush=True)
 for path in potential_paths:
-    print(f"{path}: {'存在' if path.exists() else '不存在'}")
-print(f"最终使用的模型路径: {SHARED_MODELS_DIR}")
+    print(f"{path}: {'存在' if path.exists() else '不存在'}", flush=True)
+print(f"最终使用的模型路径: {SHARED_MODELS_DIR}", flush=True)
 
 # 猴子补丁：修改KModel.MODEL_NAMES字典，添加本地模型路径
 KModel.MODEL_NAMES[str(SHARED_MODELS_DIR)] = 'kokoro-v1_1-zh.pth'
@@ -76,28 +76,28 @@ MODEL_PATH = str(SHARED_MODELS_DIR)
 SAMPLE_RATE = 24000
 
 # 加载模型
-print("=======================================")
-print("GPU 检测信息:")
-print(f"PyTorch 版本: {torch.__version__}")
-print(f"CUDA 可用: {torch.cuda.is_available()}")
-print(f"CUDA 版本: {torch.version.cuda}")
-print(f"GPU 设备数: {torch.cuda.device_count()}")
+print("=======================================", flush=True)
+print("GPU 检测信息:", flush=True)
+print(f"PyTorch 版本: {torch.__version__}", flush=True)
+print(f"CUDA 可用: {torch.cuda.is_available()}", flush=True)
+print(f"CUDA 版本: {torch.version.cuda}", flush=True)
+print(f"GPU 设备数: {torch.cuda.device_count()}", flush=True)
 if torch.cuda.is_available():
-    print(f"GPU 名称: {torch.cuda.get_device_name(0)}")
-    print(f"GPU 内存总量: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
-    print(f"当前 GPU 内存使用: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
+    print(f"GPU 名称: {torch.cuda.get_device_name(0)}", flush=True)
+    print(f"GPU 内存总量: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB", flush=True)
+    print(f"当前 GPU 内存使用: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB", flush=True)
 else:
-    print("没有检测到可用的 GPU，将使用 CPU 进行推理")
-print("=======================================")
+    print("没有检测到可用的 GPU，将使用 CPU 进行推理", flush=True)
+print("=======================================", flush=True)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'  # 优先使用GPU推理
-print(f"正在加载模型到 {device}...")
+print(f"正在加载模型到 {device}...", flush=True)
 model = KModel(repo_id=MODEL_PATH)
 model = model.to(device).eval()
-print(f"模型加载成功，使用{device}进行推理")
-print(f"模型路径: {MODEL_PATH}")
+print(f"模型加载成功，使用{device}进行推理", flush=True)
+print(f"模型路径: {MODEL_PATH}", flush=True)
 if device == 'cuda':
-    print(f"模型加载后 GPU 内存使用: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
+    print(f"模型加载后 GPU 内存使用: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB", flush=True)
 
 # 创建英文pipeline
 en_pipeline = KPipeline(lang_code='a', repo_id=MODEL_PATH, model=False)
@@ -231,13 +231,13 @@ async def process_tts(text: str, voice: str, speed: float):
         text = text.strip().replace('\n', ' ').replace('\r', ' ').replace('  ', ' ')
         # 尝试打印清理后的文本信息，处理编码错误
         try:
-            print(f"清理后的文本长度: {len(text)}, 语速: {speed}, 声音: {voice}")
+            print(f"清理后的文本长度: {len(text)}, 语速: {speed}, 声音: {voice}", flush=True)
         except UnicodeEncodeError as e:
-            print(f"打印清理后的文本信息时遇到编码错误: {e}")
+            print(f"打印清理后的文本信息时遇到编码错误: {e}", flush=True)
             # 只打印基本信息
-            print(f"清理后的文本长度: {len(text)}, 语速: {speed}, 声音: {voice}")
+            print(f"清理后的文本长度: {len(text)}, 语速: {speed}, 声音: {voice}", flush=True)
     except Exception as e:
-        print(f"清理文本时遇到错误: {e}")
+        print(f"清理文本时遇到错误: {e}", flush=True)
         # 使用更简单的文本处理方式
         text = text.strip()
     
@@ -248,7 +248,7 @@ async def process_tts(text: str, voice: str, speed: float):
         english_chars = len(re.findall(r'[a-zA-Z]', text))
         total_chars = len(text)
         is_english = english_chars / total_chars > 0.6 if total_chars > 0 else False
-        print(f"英文字符数: {english_chars}, 总字符数: {total_chars}, 是否为英文: {is_english}")
+        print(f"英文字符数: {english_chars}, 总字符数: {total_chars}, 是否为英文: {is_english}", flush=True)
         
         # 分割长文本，每段不超过100个字符
         max_segment_length = 100
@@ -267,7 +267,7 @@ async def process_tts(text: str, voice: str, speed: float):
         if current_segment:
             segments.append(current_segment)
         
-        print(f"文本分割为 {len(segments)} 段")
+        print(f"文本分割为 {len(segments)} 段", flush=True)
         
         # 处理每段文本并拼接音频
         all_wavs = []
@@ -277,16 +277,16 @@ async def process_tts(text: str, voice: str, speed: float):
             segment = ''.join([c if c.isprintable() or c.isspace() else ' ' for c in segment])
             # 尝试打印处理的段落，处理编码错误
             try:
-                print(f"处理第 {i+1} 段: {segment}")
+                print(f"处理第 {i+1} 段: {segment}", flush=True)
             except UnicodeEncodeError as e:
-                print(f"处理第 {i+1} 段时遇到编码错误: {e}")
+                print(f"处理第 {i+1} 段时遇到编码错误: {e}", flush=True)
                 # 只打印段落长度
-                print(f"处理第 {i+1} 段，长度: {len(segment)}")
+                print(f"处理第 {i+1} 段，长度: {len(segment)}", flush=True)
             
             try:
                 if is_english:
                     # 如果主要为英文，使用英文pipeline
-                    print(f"使用英文pipeline处理")
+                    print(f"使用英文pipeline处理", flush=True)
                     # 定义英文pipeline的速度函数
                     def en_speed_callable(len_ps):
                         return speed
@@ -295,32 +295,32 @@ async def process_tts(text: str, voice: str, speed: float):
                         generator = en_pipeline(segment, voice=voice, speed=en_speed_callable)
                         result = next(generator)
                         wav_segment = result.audio
-                        print(f"英文pipeline处理成功，音频数据类型: {type(wav_segment)}")
+                        print(f"英文pipeline处理成功，音频数据类型: {type(wav_segment)}", flush=True)
                         
                         # 如果英文pipeline返回None，尝试使用中文pipeline
                         if wav_segment is None:
-                            print(f"英文pipeline返回None，尝试使用中文pipeline")
+                            print(f"英文pipeline返回None，尝试使用中文pipeline", flush=True)
                             def zh_speed_callable(len_ps):
                                 return speed
                             
                             generator = zh_pipeline(segment, voice=voice, speed=zh_speed_callable)
                             result = next(generator)
                             wav_segment = result.audio
-                            print(f"中文pipeline处理成功，音频数据类型: {type(wav_segment)}")
+                            print(f"中文pipeline处理成功，音频数据类型: {type(wav_segment)}", flush=True)
                     except Exception as e:
-                        print(f"英文pipeline处理失败: {e}")
+                        print(f"英文pipeline处理失败: {e}", flush=True)
                         # 尝试使用中文pipeline
-                        print(f"尝试使用中文pipeline处理")
+                        print(f"尝试使用中文pipeline处理", flush=True)
                         def zh_speed_callable(len_ps):
                             return speed
                         
                         generator = zh_pipeline(segment, voice=voice, speed=zh_speed_callable)
                         result = next(generator)
                         wav_segment = result.audio
-                        print(f"中文pipeline处理成功，音频数据类型: {type(wav_segment)}")
+                        print(f"中文pipeline处理成功，音频数据类型: {type(wav_segment)}", flush=True)
                 else:
                     # 否则使用中文pipeline
-                    print(f"使用中文pipeline处理")
+                    print(f"使用中文pipeline处理", flush=True)
                     # 定义中文pipeline的速度函数
                     def zh_speed_callable(len_ps):
                         return speed
@@ -328,7 +328,7 @@ async def process_tts(text: str, voice: str, speed: float):
                     generator = zh_pipeline(segment, voice=voice, speed=zh_speed_callable)
                     result = next(generator)
                     wav_segment = result.audio
-                    print(f"中文pipeline处理成功，音频数据类型: {type(wav_segment)}")
+                    print(f"中文pipeline处理成功，音频数据类型: {type(wav_segment)}", flush=True)
                 
                 # 确保wav_segment是有效的
                 if wav_segment is not None:
@@ -336,24 +336,24 @@ async def process_tts(text: str, voice: str, speed: float):
                     if isinstance(wav_segment, torch.Tensor):
                         # 将PyTorch张量转换为NumPy数组
                         wav_segment = wav_segment.cpu().numpy()
-                        print(f"转换PyTorch张量为NumPy数组，形状: {wav_segment.shape}")
+                        print(f"转换PyTorch张量为NumPy数组，形状: {wav_segment.shape}", flush=True)
                     elif isinstance(wav_segment, np.ndarray):
-                        print(f"音频数据形状: {wav_segment.shape}")
+                        print(f"音频数据形状: {wav_segment.shape}", flush=True)
                     else:
-                        print(f"未知音频数据类型: {type(wav_segment)}")
+                        print(f"未知音频数据类型: {type(wav_segment)}", flush=True)
                         continue
                     
                     # 确保音频数据是二维的
                     if len(wav_segment.shape) == 1:
                         wav_segment = np.expand_dims(wav_segment, axis=1)
-                        print(f"调整音频数据形状为: {wav_segment.shape}")
+                        print(f"调整音频数据形状为: {wav_segment.shape}", flush=True)
                     
                     all_wavs.append(wav_segment)
             except Exception as e:
-                print(f"处理第 {i+1} 段失败: {e}")
+                print(f"处理第 {i+1} 段失败: {e}", flush=True)
                 # 尝试使用中文pipeline处理
                 try:
-                    print(f"尝试使用中文pipeline处理英文文本")
+                    print(f"尝试使用中文pipeline处理英文文本", flush=True)
                     def zh_speed_callable(len_ps):
                         return speed
                     
@@ -367,22 +367,22 @@ async def process_tts(text: str, voice: str, speed: float):
                         if len(wav_segment.shape) == 1:
                             wav_segment = np.expand_dims(wav_segment, axis=1)
                         all_wavs.append(wav_segment)
-                    print(f"中文pipeline处理英文文本成功")
+                    print(f"中文pipeline处理英文文本成功", flush=True)
                 except Exception as e2:
-                    print(f"中文pipeline处理英文文本也失败: {e2}")
+                    print(f"中文pipeline处理英文文本也失败: {e2}", flush=True)
         
         # 拼接所有音频段
         if not all_wavs:
-            print("没有生成有效的音频数据")
+            print("没有生成有效的音频数据", flush=True)
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=400, content={"error": "生成的音频数据无效"})
         
         # 拼接音频段
         wav = np.concatenate(all_wavs)
-        print(f"拼接后的音频数据形状: {wav.shape}")
+        print(f"拼接后的音频数据形状: {wav.shape}", flush=True)
         
     except Exception as e:
-        print(f"处理文本失败: {e}")
+        print(f"处理文本失败: {e}", flush=True)
         import traceback
         traceback.print_exc()
         # 如果处理失败，返回错误
@@ -398,13 +398,13 @@ async def process_tts(text: str, voice: str, speed: float):
     if isinstance(wav, torch.Tensor):
         # 将PyTorch张量转换为NumPy数组
         wav = wav.cpu().numpy()
-        print(f"将PyTorch张量转换为NumPy数组，形状: {wav.shape}")
+        print(f"将PyTorch张量转换为NumPy数组，形状: {wav.shape}", flush=True)
     
     if isinstance(wav, np.ndarray):
         # 如果是一维数组，添加一个维度
         if len(wav.shape) == 1:
             wav = np.expand_dims(wav, axis=1)
-            print(f"音频数据形状调整为: {wav.shape}")
+            print(f"音频数据形状调整为: {wav.shape}", flush=True)
         elif len(wav.shape) > 2:
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=400, content={"error": "音频数据形状不正确"})
@@ -417,11 +417,11 @@ async def process_tts(text: str, voice: str, speed: float):
         buffer = BytesIO()
         sf.write(buffer, wav, SAMPLE_RATE, format='WAV')
         buffer.seek(0)
-        print(f"音频数据写入成功，大小: {buffer.getbuffer().nbytes} 字节")
+        print(f"音频数据写入成功，大小: {buffer.getbuffer().nbytes} 字节", flush=True)
         
         return StreamingResponse(buffer, media_type="audio/wav")
     except Exception as e:
-        print(f"写入音频数据失败: {e}")
+        print(f"写入音频数据失败: {e}", flush=True)
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=500, content={"error": f"写入音频数据失败: {str(e)}"})
 
