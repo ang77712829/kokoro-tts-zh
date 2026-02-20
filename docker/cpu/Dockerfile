@@ -3,7 +3,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # 创建必要的目录
-RUN mkdir -p app models
+RUN mkdir -p app models app/static app/templates
 
 # 复制应用文件（从构建上下文根目录）
 COPY tts-project-cpu/app/ app/
