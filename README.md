@@ -146,7 +146,7 @@ Kokoro TTS 是一个轻量级但功能强大的中文语音合成系统，基于
    docker-compose up -d
    ```
 
-3. 服务将在 http://localhost:8000 运行
+3. 服务将在 http://localhost:8100 运行
 
 ### GPU 版本
 
@@ -160,7 +160,7 @@ Kokoro TTS 是一个轻量级但功能强大的中文语音合成系统，基于
    docker-compose up -d
    ```
 
-3. 服务将在 http://localhost:8001 运行
+3. 服务将在 http://localhost:8101 运行
 
 ## 支持的声音模型
 

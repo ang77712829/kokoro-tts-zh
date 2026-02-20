@@ -8,8 +8,3 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: '0.8'  # 限制CPU使用率为80%
-          memory: '16G'  # 限制内存使用为16GB

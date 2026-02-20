@@ -146,7 +146,7 @@ Kokoro TTS is a lightweight but powerful Chinese speech synthesis system based o
    docker-compose up -d
    ```
 
-3. The service will run at http://localhost:8000
+3. The service will run at http://localhost:8100
 
 ### GPU Version
 
@@ -160,7 +160,7 @@ Kokoro TTS is a lightweight but powerful Chinese speech synthesis system based o
    docker-compose up -d
    ```
 
-3. The service will run at http://localhost:8001
+3. The service will run at http://localhost:8101
 
 ## Supported Voice Models
 
@@ -215,7 +215,7 @@ This project is licensed under the MIT License.
 - Initial version release
 - Support for Chinese and English speech synthesis
 - Support for CPU and GPU runtime modes
-- Provide Docker deployment方案
+- Provide Docker deployment solution
 - Support for RESTful API interface
 - Support for OpenAI-style API calls
 - Support for integration with third-party applications like Tavern AI
