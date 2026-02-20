@@ -31,9 +31,18 @@ Kokoro TTS 是一个轻量级但功能强大的中文语音合成系统，基于
 
 ## 快速开始
 
+### 前置要求
+- **Git LFS**：由于模型文件较大，需要安装 Git LFS 来克隆项目
+  - 安装方法：https://git-lfs.com/
+  - 安装后初始化：`git lfs install`
+
 ### 方法一：一键启动脚本
 
-1. 克隆项目到本地
+1. 克隆项目到本地（使用 Git LFS）
+   ```bash
+   git clone https://github.com/ang77712829/kokoro-tts-zh.git
+   cd kokoro-tts-zh
+   ```
 
 2. 运行启动脚本
    ```bash

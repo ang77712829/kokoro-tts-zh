@@ -31,9 +31,18 @@ Kokoro TTS is a lightweight but powerful Chinese speech synthesis system based o
 
 ## Quick Start
 
+### Prerequisites
+- **Git LFS**：Required for cloning the project due to large model files
+  - Installation: https://git-lfs.com/
+  - Initialization after installation: `git lfs install`
+
 ### Method 1: One-click Startup Script
 
-1. Clone the project to your local machine
+1. Clone the project to your local machine (using Git LFS)
+   ```bash
+   git clone https://github.com/ang77712829/kokoro-tts-zh.git
+   cd kokoro-tts-zh
+   ```
 
 2. Run the startup script
    ```bash
