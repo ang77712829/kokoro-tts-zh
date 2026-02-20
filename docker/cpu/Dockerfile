@@ -12,6 +12,10 @@ COPY tts-project-cpu/requirements.txt .
 # 复制models目录
 COPY models/ models/
 
+# 先安装纯CPU版本的PyTorch
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 然后安装其他依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 5000
