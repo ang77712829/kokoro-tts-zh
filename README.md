@@ -211,6 +211,31 @@ tts-project/
 - 支持 OpenAI 风格的 API 调用
 - 支持 Tavern AI 等第三方应用集成
 
+## 致谢
+
+本项目基于以下优秀的开源项目和模型：
+
+### 核心模型
+- **Kokoro-82M-v1.1-zh**：轻量级但功能强大的TTS模型
+  - 模型地址：https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh
+  - 感谢 LongMaoData 提供的中文数据集
+  - 感谢 hexgrad 团队的模型训练和开源贡献
+
+### 技术架构
+- **StyleTTS 2**：先进的语音合成架构
+  - 论文：https://arxiv.org/abs/2306.07691
+  - 项目：https://github.com/yl4579/StyleTTS2
+
+- **ISTFTNet**：高效的声码器
+  - 论文：https://arxiv.org/abs/2203.02395
+
+### 依赖库
+- PyTorch：深度学习框架
+- FastAPI：Web API框架
+- Uvicorn：ASGI服务器
+- NumPy：数值计算库
+- jieba：中文分词库
+
 ## 联系方式
 
 - GitHub: https://github.com/ang77712829/kokoro-tts-zh

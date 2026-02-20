@@ -211,6 +211,31 @@ This project is licensed under the MIT License.
 - Support for OpenAI-style API calls
 - Support for integration with third-party applications like Tavern AI
 
+## Acknowledgements
+
+This project is based on the following excellent open-source projects and models:
+
+### Core Model
+- **Kokoro-82M-v1.1-zh**：Lightweight but powerful TTS model
+  - Model address：https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh
+  - Thanks to LongMaoData for providing the Chinese dataset
+  - Thanks to the hexgrad team for model training and open-source contributions
+
+### Technical Architecture
+- **StyleTTS 2**：Advanced speech synthesis architecture
+  - Paper：https://arxiv.org/abs/2306.07691
+  - Project：https://github.com/yl4579/StyleTTS2
+
+- **ISTFTNet**：Efficient vocoder
+  - Paper：https://arxiv.org/abs/2203.02395
+
+### Dependencies
+- PyTorch：Deep learning framework
+- FastAPI：Web API framework
+- Uvicorn：ASGI server
+- NumPy：Numerical computing library
+- jieba：Chinese word segmentation library
+
 ## Contact
 
 - GitHub: https://github.com/ang77712829/kokoro-tts-zh
