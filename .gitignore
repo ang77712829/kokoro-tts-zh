@@ -1,0 +1,55 @@
+# Model files (tracked by Git LFS)
+# 注意：这些文件由 Git LFS 跟踪，不要在 .gitignore 中忽略它们
+# 否则 Git LFS 将无法正常工作
+
+# 临时文件和缓存
+**/__pycache__/
+**/*.pyc
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE files
+.vscode/
+.idea/
+
+# Docker files
+.dockerignore
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Windows files
+Thumbs.db
+.DS_Store
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Virtual environment
+venv/
+env/
+
+# Pip files
+pip-wheel-metadata/
+
+# Testing
+.coverage
+.tox/
+
+# Documentation
+/docs/_build/

@@ -1,0 +1,8 @@
+kokoro>=0.8.2
+misaki[zh]>=0.8.2
+soundfile
+fastapi
+uvicorn
+python-multipart
+jinja2
+numpy

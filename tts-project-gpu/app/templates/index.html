@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kokoro TTS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        /* 启动动画 */
+        .splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            animation: fadeOut 2s ease-in-out forwards;
+        }
+        
+        .splash-text {
+            font-size: 120px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes fadeOut {
+            0% {
+                opacity: 1;
+            }
+            70% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0;
+                visibility: hidden;
+            }
+        }
+        
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+            100% {
+                transform: scale(1);
+            }
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            width: 100%;
+            max-width: 800px;
+            animation: slideUp 1s ease-out forwards;
+            animation-delay: 1.5s;
+            opacity: 0;
+            transform: translateY(30px);
+        }
+        
+        @keyframes slideUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 16px;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 180px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            resize: vertical;
+            font-size: 16px;
+            font-family: inherit;
+            transition: border-color 0.3s ease;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            background: white;
+            transition: border-color 0.3s ease;
+        }
+        
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .button-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            flex: 1;
+            max-width: 200px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .loading {
+            display: none;
+            color: #667eea;
+            font-weight: 600;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        .audio-player {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(102, 126, 234, 0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+        
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        .voice-info {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 30px;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+            
+            textarea {
+                height: 150px;
+            }
+            
+            .splash-text {
+                font-size: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 启动动画 -->
+    <div class="splash-screen">
+        <div class="splash-text">AH</div>
+    </div>
+    
+    <div class="container">
+        <h1>Kokoro TTS 语音合成</h1>
+        <form id="tts-form">
+            <div class="form-group">
+                <label for="text">输入文本：</label>
+                <textarea id="text" name="text" placeholder="请输入要转换为语音的文本...">Kokoro 是一系列体积虽小但功能强大的 TTS 模型。</textarea>
+            </div>
+            <div class="form-group">
+                <label for="voice">选择声音：</label>
+                <select id="voice" name="voice">
+                    {% for voice in voices %}
+                    <option value="{{ voice }}">{{ voice }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="speed">语速调节：</label>
+                <input type="range" id="speed" name="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+                <span id="speed-value">1.0</span>
+            </div>
+            <div class="button-container">
+                <button type="submit">生成语音</button>
+                <div class="loading" id="loading">生成中...</div>
+            </div>
+        </form>
+        <div class="audio-player">
+            <h3>音频播放</h3>
+            <audio id="audio-player" controls>
+                您的浏览器不支持音频播放。
+            </audio>
+        </div>
+        <div class="voice-info">
+            提示：支持中英文混合输入，模型会自动处理不同语言的发音。
+        </div>
+    </div>
+    <script>
+        // 实时显示语速值
+        document.getElementById('speed').addEventListener('input', function() {
+            document.getElementById('speed-value').textContent = this.value;
+        });
+        
+        document.getElementById('tts-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const text = document.getElementById('text').value;
+            const voice = document.getElementById('voice').value;
+            const speed = document.getElementById('speed').value;
+            const loading = document.getElementById('loading');
+            const audioPlayer = document.getElementById('audio-player');
+            
+            if (!text) {
+                alert('请输入文本');
+                return;
+            }
+            
+            loading.style.display = 'block';
+            
+            try {
+                const formData = new FormData();
+                formData.append('text', text);
+                formData.append('voice', voice);
+                formData.append('speed', speed);
+                
+                const response = await fetch('/api/tts', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || '生成语音失败');
+                }
+                
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                audioPlayer.src = url;
+                audioPlayer.play();
+            } catch (error) {
+                alert('生成语音失败：' + error.message);
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

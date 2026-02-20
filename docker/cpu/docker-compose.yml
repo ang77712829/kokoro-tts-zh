@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  tts-cpu:
+    build:
+      context: ../..
+      dockerfile: docker/cpu/Dockerfile
+    ports:
+      - "8100:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: always
+    command: python app/main.py
+    deploy:
+      resources:
+        limits:
+          cpus: '0.8'  # 限制CPU使用率为80%
+          memory: '16G'  # 限制内存使用为16GB
