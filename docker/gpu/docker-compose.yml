@@ -7,7 +7,10 @@ services:
       - "8101:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     restart: always
+    runtime: nvidia
     deploy:
       resources:
         reservations:
