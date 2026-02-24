@@ -12,15 +12,17 @@ COPY tts-project-gpu/requirements.txt .
 # 复制models目录
 COPY models/ models/
 
-# 安装Python 3.10
-RUN apt-get update && apt-get install -y python3.10 python3.10-pip python3.10-dev
+# 安装Python 3.10及相关工具
+RUN apt-get update && \
+    apt-get install -y python3.10 python3-pip python3.10-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# 设置Python 3.10为默认
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
-RUN update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.10 1
-
-RUN pip3 install --no-cache-dir -r requirements.txt
+# 创建并激活虚拟环境（推荐方式）
+RUN python3.10 -m venv /app/venv && \
+    . /app/venv/bin/activate && \
+    pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8000
 
-CMD ["python3", "app/main.py"]
+CMD ["python3.10", "app/main.py"]
