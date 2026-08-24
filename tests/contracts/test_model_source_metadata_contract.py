@@ -164,8 +164,17 @@ def test_metadata_module_is_declaration_only() -> None:
     assert {node.func.id for node in calls} == {"dataclass", "frozenset", "ModelSourceMetadata"}
 
 
-def test_ttsconfig_is_the_only_production_metadata_consumer() -> None:
-    assert _metadata_importers() == ["config.py"]
+def test_metadata_production_consumers_stay_within_frozen_projection_boundary() -> None:
+    actual = set(_metadata_importers())
+    required_base = {"config.py"}
+    allowed = {
+        "config.py",
+        "config_env.py",
+        "admin_config/groups/security.py",
+    }
+
+    assert required_base <= actual
+    assert actual <= allowed, f"unexpected metadata consumers: {sorted(actual - allowed)}"
 
 
 def test_normalization_consumes_metadata_without_a_duplicate_value_set(monkeypatch) -> None:

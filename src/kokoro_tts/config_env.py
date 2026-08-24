@@ -15,6 +15,7 @@ from .config_env_domain import (
     UPDATE_CHECK_ENV_DECLARATIONS,
     parse_int_env,
 )
+from .model_source_metadata import MODEL_SOURCE_METADATA
 from .rate_limit_config_metadata import RATE_LIMIT_CONFIG_BY_KEY
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,7 @@ STR_ENV: dict[str, str] = {
     },
     "ANGEVOICE_CREDENTIALS_DIR": "credentials_dir",
     "ANGEVOICE_ADMIN_CREDENTIALS_FILE": "admin_credentials_file",
-    "ANGEVOICE_MODEL_SOURCE": "model_source",
+    MODEL_SOURCE_METADATA.canonical_env: MODEL_SOURCE_METADATA.key,
     "ANGEVOICE_MODEL_SOURCE_DETECT_URL": "model_source_detect_url",
     "ANGEVOICE_MODEL_SOURCE_PROBE_HF_URL": "model_source_probe_hf_url",
     "ANGEVOICE_MODEL_SOURCE_PROBE_MODELSCOPE_URL": "model_source_probe_modelscope_url",

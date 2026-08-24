@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from ...model_source_metadata import MODEL_SOURCE_METADATA
 from ...rate_limit_config_metadata import RATE_LIMIT_CONFIG_BY_KEY
 from ..fields import AdminConfigField, field_def
 
 
 _RATE_LIMIT_QPS_METADATA = RATE_LIMIT_CONFIG_BY_KEY["rate_limit_qps"]
 _RATE_LIMIT_BURST_METADATA = RATE_LIMIT_CONFIG_BY_KEY["rate_limit_burst"]
+_MODEL_SOURCE_CHOICE_LABELS = {
+    "auto": "auto 自动",
+    "modelscope": "ModelScope",
+    "huggingface": "Hugging Face",
+    "offline": "offline 离线",
+}
 
 
 FIELDS: tuple[AdminConfigField, ...] = (
@@ -91,12 +98,17 @@ FIELDS: tuple[AdminConfigField, ...] = (
         True,
     ),
     field_def(
-        "model_source",
-        "ANGEVOICE_MODEL_SOURCE",
+        MODEL_SOURCE_METADATA.key,
+        MODEL_SOURCE_METADATA.canonical_env,
         "模型下载源",
-        "security",
+        MODEL_SOURCE_METADATA.admin_group,
         "choice",
-        "auto",
-        choices=(("auto", "auto 自动"), ("modelscope", "ModelScope"), ("huggingface", "Hugging Face"), ("offline", "offline 离线")),
+        MODEL_SOURCE_METADATA.default,
+        choices=tuple(
+            (value, _MODEL_SOURCE_CHOICE_LABELS[value])
+            for value in MODEL_SOURCE_METADATA.admin_choices
+        ),
+        restart=MODEL_SOURCE_METADATA.admin_restart,
+        rebuild_moss=MODEL_SOURCE_METADATA.admin_rebuild_moss,
     ),
 )
