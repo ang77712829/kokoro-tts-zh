@@ -6,8 +6,15 @@ from typing import Any, Callable
 
 from ...config import TTSConfig
 from ...engine import TTSEngine
-from ...workers import EngineProcessClient
+from ...workers import EngineProcessClient, EngineWorkerSpec
 from ..base import EngineCapabilities
+from ..registry import EngineRegistry
+
+
+def _create_kokoro_worker_engine(config: object, _requested_provider: str | None) -> TTSEngine:
+    """Build the concrete Kokoro runtime inside an isolated worker."""
+
+    return TTSEngine(config)
 
 
 class KokoroAdapter:
@@ -25,7 +32,17 @@ class KokoroAdapter:
     def __init__(self, cfg: TTSConfig, engine: TTSEngine | None = None):
         self._cfg = cfg
         self._process_isolated = bool(getattr(cfg, "kokoro_process_isolation_enabled", False)) and engine is None
-        self._worker = EngineProcessClient(config=cfg, engine_id="kokoro") if self._process_isolated else None
+        self._worker = (
+            EngineProcessClient(
+                config=cfg,
+                spec=EngineWorkerSpec(
+                    engine_id="kokoro",
+                    factory=_create_kokoro_worker_engine,
+                ),
+            )
+            if self._process_isolated
+            else None
+        )
         self._engine = None if self._process_isolated else (engine or TTSEngine(cfg))
 
     @property
@@ -110,10 +127,7 @@ class KokoroAdapter:
         )
 
     def capabilities(self) -> EngineCapabilities:
-        return EngineCapabilities(
-            modes=("preset_voice",), voice_clone_supported=False, speed_supported=True,
-            text_rules_enabled=True, stream_mode="segmented", sample_rate=self.sample_rate, channels=1,
-        )
+        return EngineRegistry.capabilities_for(self.public_id, self._cfg)
 
     def metadata(self) -> dict[str, Any]:
         if self._worker is None:

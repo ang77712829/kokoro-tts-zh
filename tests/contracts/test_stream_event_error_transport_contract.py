@@ -19,14 +19,14 @@ from typing import Any, Iterable
 
 import pytest
 
-from kokoro_tts.contracts import StreamingRequest, StreamingResult
+from kokoro_tts.contracts import StreamingRequest, StreamingResult, WorkerFailureEnvelope
 from kokoro_tts.engines.adapters.kokoro import KokoroAdapter
 from kokoro_tts.engines.adapters.moss import MossAdapter
 from kokoro_tts.engines.adapters.zipvoice import ZipVoiceEngine as ExportedZipVoiceEngine
 from kokoro_tts.engines.base import EngineAdapter
 from kokoro_tts.services.streaming_service import StreamingService
 from kokoro_tts.validation import websocket_error_frame_from_http
-from kokoro_tts.workers import process_worker
+from kokoro_tts.workers import EngineWorkerSpec, process_worker
 from kokoro_tts.workers.process_worker import EngineProcessClient, WorkerResult
 from kokoro_tts.ws.cancel import CancelLifecycleMixin
 from kokoro_tts.ws.session import TtsWebSocketSession
@@ -118,8 +118,7 @@ def _run_worker_stream(
 
     process_worker._worker_main(
         SimpleNamespace(),
-        "kokoro",
-        None,
+        EngineWorkerSpec("kokoro", str),
         command_queue,
         result_queue,
         cancel_flag,
@@ -381,15 +380,27 @@ class TestWorkerMessageMapping:
         assert 'done_payload = {"type": "done"' in worker
         assert "始终发送终止消息" in worker
 
-    def test_worker_error_is_stringified_with_type_loss_at_parent_boundary(self) -> None:
-        worker = _source("src/kokoro_tts/workers/process_worker.py")
-        assert "type(exc).__name__" in worker
-        assert "traceback.format_exc()" in worker
-        assert "raise RuntimeError(str(result.payload))" in worker
-        result = WorkerResult("request-1", "error", "ValueError: detail\ntraceback text")
-        assert result.kind == "error"
-        assert isinstance(result.payload, str)
-        assert not isinstance(result.payload, BaseException)
+    def test_worker_error_uses_typed_transport_without_public_traceback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def failing_frames():
+            raise ValueError("detail")
+            yield  # pragma: no cover - makes this a generator
+
+        results = _run_worker_stream(monkeypatch, failing_frames())
+        assert len(results) == 1
+        request_id, kind, payload = results[0]
+        assert request_id == "request-stream"
+        assert kind == "error"
+        assert isinstance(payload, WorkerFailureEnvelope)
+        assert (payload.version, payload.code, payload.message) == (
+            1,
+            "engine_runtime_failed",
+            "ValueError: detail",
+        )
+        assert not isinstance(payload, BaseException)
+        assert "Traceback" not in payload.message
 
     def test_missing_child_terminal_maps_to_failure_then_protocol_and_queue_done(
         self, monkeypatch: pytest.MonkeyPatch

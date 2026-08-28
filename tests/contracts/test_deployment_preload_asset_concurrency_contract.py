@@ -176,8 +176,9 @@ def _create_spied_app(monkeypatch, cfg, events: list[object], *, warm_error=None
             events.append(("snapshot",))
             return {"id": "kokoro"}
 
-        def stop_idle_timer(self):
-            events.append(("stop_idle_timer",))
+        def close_all(self):
+            events.append(("close_all",))
+            return True
 
     class FakeState:
         def __init__(self, config, engine, *, model_manager):
@@ -456,7 +457,7 @@ class TestStartupPreloadLifecycle:
             ("warm", "kokoro"),
             ("snapshot",),
             ("yielded",),
-            ("stop_idle_timer",),
+            ("close_all",),
         ]
 
     def test_preload_failure_prevents_this_worker_yield(self, monkeypatch, tmp_path):
@@ -475,7 +476,7 @@ class TestStartupPreloadLifecycle:
         with pytest.raises(RuntimeError, match="synthetic preload failure"):
             asyncio.run(run_lifespan())
         assert ("yielded",) not in events
-        assert ("stop_idle_timer",) not in events
+        assert events[-1] == ("close_all",)
 
     def test_preload_runs_for_each_independent_app_factory_invocation(
         self, monkeypatch, tmp_path
@@ -515,7 +516,7 @@ class TestStartupPreloadLifecycle:
 
         asyncio.run(run_lifespan())
         assert not any(event[0] == "warm" for event in events)
-        assert events.index(("yielded",)) < events.index(("stop_idle_timer",))
+        assert events.index(("yielded",)) < events.index(("close_all",))
 
     def test_first_request_model_use_is_owned_by_the_current_manager(self):
         """STATIC OWNERSHIP CONTRACT for the preload-disabled request path."""

@@ -10,8 +10,8 @@ Contract classifications:
 * launcher topology, per-worker ownership, spawn, and explicit close:
   BEHAVIOR/OWNERSHIP CONTRACT;
 * export inventory and child config consumption: STATIC OWNERSHIP CONTRACT;
-* ambient environment inheritance and missing app-wide child close:
-  CURRENT-BEHAVIOR CHARACTERIZATION (not design endorsement).
+* ambient environment inheritance: CURRENT-BEHAVIOR CHARACTERIZATION
+  (not design endorsement).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from kokoro_tts.config import TTSConfig
 from kokoro_tts.engine_manager import EngineManager
 from kokoro_tts.moss import process_worker as moss_process_worker
 from kokoro_tts.service_state import ServiceState
-from kokoro_tts.workers import factories, process_worker
+from kokoro_tts.workers import EngineWorkerSpec, process_worker
 
 
 pytestmark = pytest.mark.contract
@@ -44,6 +44,23 @@ MODEL_SOURCE_EFFECTIVE_FIELDS = {
     "model_source_hf_reachable",
     "model_source_modelscope_reachable",
 }
+
+
+def _contract_worker_factory(_config: object, _provider: str | None) -> object:
+    """Top-level spawn-safe factory used by hermetic process-client contracts."""
+
+    return object()
+
+
+def _contract_worker_spec(
+    engine_id: str = "kokoro",
+    provider: str | None = None,
+) -> EngineWorkerSpec:
+    return EngineWorkerSpec(
+        engine_id=engine_id,
+        factory=_contract_worker_factory,
+        requested_provider=provider,
+    )
 
 
 def _module_tree(relative: str) -> ast.Module:
@@ -644,8 +661,7 @@ class TestEngineChildSpawnBoundary:
         cfg.model_source_country = "US"
         client = process_worker.EngineProcessClient(
             config=cfg,
-            engine_id="kokoro",
-            requested_provider="cpu",
+            spec=_contract_worker_spec("kokoro", "cpu"),
         )
 
         client.start()
@@ -661,8 +677,7 @@ class TestEngineChildSpawnBoundary:
         args = process.kwargs["args"]
         assert args == (
             cfg,
-            "kokoro",
-            "cpu",
+            client.spec,
             context.queues[0],
             context.queues[1],
             client._cancel_flag,
@@ -738,7 +753,7 @@ class TestWorkerMainConfigConsumption:
         assert [
             argument.id if isinstance(argument, ast.Name) else None
             for argument in factory_call.args
-        ] == ["config", "engine_id", "requested_provider"]
+        ] == ["config", "spec"]
 
     def test_requested_and_effective_model_source_have_distinct_process_boundaries(
         self,
@@ -768,58 +783,38 @@ class TestWorkerMainConfigConsumption:
         assert args_keyword.value.elts[0].attr == "config"
 
 
-class TestEngineFactoryOwnership:
-    def test_three_canonical_factories_consume_passed_config_and_provider(
-        self, monkeypatch
-    ):
+class TestEngineWorkerSpecOwnership:
+    def test_worker_constructs_only_from_the_passed_spec(self):
         """BEHAVIOR CONTRACT without importing or constructing real engines."""
 
         config = object()
-        calls: list[tuple[str, object, str | None]] = []
-        for engine_id in ("kokoro", "moss", "zipvoice"):
-            monkeypatch.setitem(
-                factories.WORKER_ENGINE_FACTORIES,
-                engine_id,
-                lambda cfg, provider, owner=engine_id: (
-                    calls.append((owner, cfg, provider)) or owner
-                ),
-            )
+        calls: list[tuple[object, str | None]] = []
 
-        assert factories.supported_worker_engines() == ("kokoro", "moss", "zipvoice")
-        for engine_id in ("kokoro", "moss", "zipvoice"):
-            assert (
-                factories.create_worker_engine(config, engine_id, "synthetic-provider")
-                == engine_id
-            )
-        assert calls == [
-            (engine_id, config, "synthetic-provider")
-            for engine_id in ("kokoro", "moss", "zipvoice")
-        ]
-        with pytest.raises(ValueError, match="通用 worker 暂不支持该模型"):
-            factories.create_worker_engine(config, "unknown", None)
+        def factory(cfg, provider):
+            calls.append((cfg, provider))
+            return "synthetic-engine"
 
-    def test_factory_module_has_no_config_runtime_or_downloader_owner(self):
+        spec = EngineWorkerSpec("synthetic", factory, "synthetic-provider")
+        assert process_worker.create_worker_engine(config, spec) == "synthetic-engine"
+        assert calls == [(config, "synthetic-provider")]
+
+    def test_worker_modules_have_no_concrete_engine_or_dynamic_loader_owner(self):
         """STATIC OWNERSHIP CONTRACT."""
 
-        tree = _module_tree("workers/factories.py")
-        names = _call_names(tree)
-        assert not {
-            "load_config",
-            "load_runtime_config",
-            "read_runtime_config",
-            "apply_env",
-            "snapshot_download",
-            "resolve_model_source",
-        } & names
-        imported_modules = {
-            node.module
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module
-        }
-        assert not any(
-            "downloader" in module or "model_sources" in module
-            for module in imported_modules
+        worker_root = PACKAGE_ROOT / "workers"
+        sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(worker_root.glob("*.py"))
         )
+        for forbidden in (
+            "from ..engine import",
+            "from ..moss_engine import",
+            "from ..zipvoice.engine import",
+            "importlib",
+            "__import__",
+        ):
+            assert forbidden not in sources
+        assert not (worker_root / "factories.py").exists()
 
 
 class TestMossProcessCompatibilityFacade:
@@ -863,7 +858,7 @@ class TestEngineChildLifecycleOwnership:
         cfg.engine_process_kill_grace_seconds = 0.25
         client = process_worker.EngineProcessClient(
             config=cfg,
-            engine_id="kokoro",
+            spec=_contract_worker_spec(),
         )
         command_queue = _FakeQueue(context.events, "command")
         result_queue = _FakeQueue(context.events, "result")
@@ -926,7 +921,7 @@ class TestEngineChildLifecycleOwnership:
         monkeypatch.setattr(process_worker.mp, "get_context", lambda _method: context)
         client = process_worker.EngineProcessClient(
             config=_synthetic_config(tmp_path),
-            engine_id="kokoro",
+            spec=_contract_worker_spec(),
         )
         dead = _FakeProcess()
         dead.started = False
@@ -941,16 +936,15 @@ class TestEngineChildLifecycleOwnership:
 
 
 class TestAppLifespanShutdownBoundary:
-    def test_lifespan_stops_idle_timer_but_has_no_close_all_child_barrier(self):
-        """CURRENT-BEHAVIOR CHARACTERIZATION; not design endorsement."""
+    def test_lifespan_delegates_to_the_close_all_child_barrier(self):
+        """STATIC OWNERSHIP CONTRACT: lifespan orchestrates one manager primitive."""
 
         create_app = _definition(_module_tree("server.py"), "create_app")
         lifespan = _definition(create_app, "lifespan")
         calls = _call_names(lifespan)
-        assert "stop_idle_timer" in calls
+        assert "close_all" in calls
         assert not {
             "close",
-            "close_all",
             "shutdown",
             "terminate",
             "kill",

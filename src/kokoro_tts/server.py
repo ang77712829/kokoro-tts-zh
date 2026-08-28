@@ -236,26 +236,38 @@ def create_app(config: Optional[TTSConfig] = None, engine: Optional[TTSEngine] =
     cfg = config or load_config()
     cfg.validate_security()
     manager = EngineManager(cfg, initial_engine=engine)
-    state = ServiceState(cfg, engine, model_manager=manager)
+    try:
+        state = ServiceState(cfg, engine, model_manager=manager)
+    except Exception:
+        # ServiceState may fail after the manager has started its timer or
+        # accepted an initial engine. Preserve the original startup exception.
+        try:
+            manager.close_all()
+        except Exception:
+            logger.exception("应用状态初始化失败后的资源清理异常")
+        raise
     verify_api_key = make_verify_api_key(cfg)
 
     @asynccontextmanager
     async def lifespan(app):
-        # 选择 Studio 默认值不应强制将权重加载到 PID 1。
-        # 可选的启动预加载始终遵循配置的适配器/worker 路径。
-        state.model_manager.switch_model(cfg.default_model, load=False)
-        if bool(getattr(cfg, "startup_preload_enabled", False)):
-            preload_model = str(getattr(cfg, "startup_preload_model", "") or cfg.default_model)
-            available_models = {item.id for item in state.model_manager.list_specs()}
-            if preload_model in available_models:
-                state.model_manager.warm_model(preload_model)
-                logger.info("Startup preload completed (model=%s)", preload_model)
-            else:
-                logger.warning("Startup preload skipped: model %s is not enabled", preload_model)
-        current = state.model_manager.current_snapshot()
-        logger.info("AngeVoice service started (selected_model=%s preload=%s)", current.get("id"), bool(getattr(cfg, "startup_preload_enabled", False)))
-        yield
-        state.model_manager.stop_idle_timer()
+        try:
+            # 选择 Studio 默认值不应强制将权重加载到 PID 1。
+            # 可选的启动预加载始终遵循配置的适配器/worker 路径。
+            state.model_manager.switch_model(cfg.default_model, load=False)
+            if bool(getattr(cfg, "startup_preload_enabled", False)):
+                preload_model = str(getattr(cfg, "startup_preload_model", "") or cfg.default_model)
+                available_models = {item.id for item in state.model_manager.list_specs()}
+                if preload_model in available_models:
+                    state.model_manager.warm_model(preload_model)
+                    logger.info("Startup preload completed (model=%s)", preload_model)
+                else:
+                    logger.warning("Startup preload skipped: model %s is not enabled", preload_model)
+            current = state.model_manager.current_snapshot()
+            logger.info("AngeVoice service started (selected_model=%s preload=%s)", current.get("id"), bool(getattr(cfg, "startup_preload_enabled", False)))
+            yield
+        finally:
+            if not state.model_manager.close_all():
+                logger.error("应用关闭屏障未能释放全部模型资源")
 
     app = FastAPI(
         title="AngeVoice",

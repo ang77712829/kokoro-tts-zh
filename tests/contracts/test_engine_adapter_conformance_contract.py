@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import FrozenInstanceError, dataclass
 import inspect
+from pathlib import Path
 import threading
 from typing import Any
 
@@ -397,6 +399,52 @@ def test_capability_differences_are_explicit_and_registry_consistent(product_cas
         assert registry.capabilities_for(specs[product_id], cfg) == capability
     with pytest.raises(FrozenInstanceError):
         capabilities["kokoro"].sample_rate = 48000
+
+
+def test_registry_is_the_only_static_product_capability_value_owner() -> None:
+    root = Path(__file__).resolve().parents[2]
+    owner_path = root / "src/kokoro_tts/engines/registry.py"
+    adapter_paths = (
+        root / "src/kokoro_tts/engines/adapters/kokoro.py",
+        root / "src/kokoro_tts/engines/adapters/moss.py",
+        root / "src/kokoro_tts/zipvoice/engine.py",
+    )
+
+    def capability_constructors(path: Path) -> list[ast.Call]:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        return [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "EngineCapabilities"
+                or isinstance(node.func, ast.Attribute)
+                and node.func.attr == "EngineCapabilities"
+            )
+        ]
+
+    assert capability_constructors(owner_path)
+    assert {
+        path.relative_to(root).as_posix(): len(capability_constructors(path))
+        for path in adapter_paths
+        if capability_constructors(path)
+    } == {}
+
+    for path in adapter_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        capability_methods = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "capabilities"
+        ]
+        assert len(capability_methods) == 1
+        assert any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "capabilities_for"
+            for node in ast.walk(capability_methods[0])
+        )
 
 
 def _synthesize_common_input(case: _ProductCase) -> bytes:

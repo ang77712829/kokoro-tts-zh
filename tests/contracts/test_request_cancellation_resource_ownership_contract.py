@@ -33,7 +33,7 @@ from kokoro_tts.services import streaming_service as streaming_module
 from kokoro_tts.services.streaming_service import StreamingService
 from kokoro_tts.services.synthesis_service import SynthesisService
 from kokoro_tts.service_state import ServiceState
-from kokoro_tts.workers import process_worker
+from kokoro_tts.workers import EngineWorkerSpec, process_worker
 from kokoro_tts.workers.process_worker import EngineProcessClient, WorkerResult
 from kokoro_tts.ws.session import TtsWebSocketSession
 from kokoro_tts.ws.state import WsSessionState
@@ -876,7 +876,13 @@ class TestWorkerGenerationCancellation:
         commands.put(("worker-stop", "shutdown", {}))
         monkeypatch.setattr(process_worker, "create_worker_engine", lambda *args: _Engine())
 
-        process_worker._worker_main(SimpleNamespace(), "kokoro", None, commands, results, cancel_flag)
+        process_worker._worker_main(
+            SimpleNamespace(),
+            EngineWorkerSpec("kokoro", str),
+            commands,
+            results,
+            cancel_flag,
+        )
 
         captured = []
         while not results.empty():

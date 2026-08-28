@@ -20,6 +20,7 @@ from kokoro_tts.prompt_audio import PROMPT_AUDIO_STALE_SECONDS, save_prompt_audi
 from kokoro_tts.routes.admin_runtime import rotate_api_key
 from kokoro_tts.server import create_app
 from kokoro_tts.service_state import ServiceState
+from kokoro_tts.workers import EngineWorkerSpec
 
 
 def _basic(username: str = "admin", password: str = "admin123") -> dict[str, str]:
@@ -921,7 +922,13 @@ def test_worker_stream_injects_generation_scoped_cancel_check(monkeypatch):
     command_queue.put(("req-stream", "synthesize_stream", {"text": "长文本", "_cancel_generation": 2}))
     command_queue.put(("req-stop", "shutdown", {}))
 
-    process_worker._worker_main(TTSConfig(), "moss", "cuda", command_queue, result_queue, Flag)
+    process_worker._worker_main(
+        TTSConfig(),
+        EngineWorkerSpec("moss", str, "cuda"),
+        command_queue,
+        result_queue,
+        Flag,
+    )
 
     assert engine.saw_cancel_check is True
     assert engine.cancel_check_value is False
@@ -961,7 +968,13 @@ def test_worker_stream_skips_cancel_check_for_legacy_engine(monkeypatch):
     command_queue.put(("req-stream", "synthesize_stream", {"text": "你好", "_cancel_generation": 1}))
     command_queue.put(("req-stop", "shutdown", {}))
 
-    process_worker._worker_main(TTSConfig(), "kokoro", "cuda", command_queue, result_queue, Flag)
+    process_worker._worker_main(
+        TTSConfig(),
+        EngineWorkerSpec("kokoro", str, "cuda"),
+        command_queue,
+        result_queue,
+        Flag,
+    )
 
     assert engine.text == "你好"
     assert result_queue.get_nowait() == ("req-stream", "event", {"type": "audio", "index": 0})
@@ -1163,7 +1176,13 @@ def test_worker_stream_keeps_queue_done_separate_from_protocol_frames(monkeypatc
     command_queue.put(("req-stream", "synthesize_stream", {"text": "长文本"}))
     command_queue.put(("req-stop", "shutdown", {}))
 
-    process_worker._worker_main(TTSConfig(), "moss", "cuda", command_queue, result_queue, Flag)
+    process_worker._worker_main(
+        TTSConfig(),
+        EngineWorkerSpec("moss", str, "cuda"),
+        command_queue,
+        result_queue,
+        Flag,
+    )
 
     assert result_queue.get_nowait() == ("req-stream", "event", {"type": "audio", "index": 0})
     assert result_queue.get_nowait() == ("req-stream", "event", {"type": "audio", "index": 1})
@@ -1197,7 +1216,13 @@ def test_worker_stream_marks_missing_terminal_before_protocol_done(monkeypatch):
     command_queue.put(("req-stream", "synthesize_stream", {"text": "长文本"}))
     command_queue.put(("req-stop", "shutdown", {}))
 
-    process_worker._worker_main(TTSConfig(), "moss", "cuda", command_queue, result_queue, Flag)
+    process_worker._worker_main(
+        TTSConfig(),
+        EngineWorkerSpec("moss", str, "cuda"),
+        command_queue,
+        result_queue,
+        Flag,
+    )
 
     assert result_queue.get_nowait() == ("req-stream", "event", {"type": "started", "segments": 2})
     assert result_queue.get_nowait() == ("req-stream", "event", {"type": "audio", "index": 0})

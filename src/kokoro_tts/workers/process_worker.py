@@ -1,4 +1,4 @@
-"""可杀死的 Kokoro、ZipVoice 和 MOSS 运行时 worker 进程。
+"""可杀死的模型运行时 worker 进程。
 
 API 进程负责路由、持久化配置档案元数据和配置。重量级推理运行时在
 生成的子进程中构建，空闲/模型释放时操作系统可可靠回收 CPU RSS 和 GPU 内存。
@@ -12,12 +12,17 @@ import multiprocessing as mp
 import queue
 import threading
 import time
-import traceback
 import uuid
 from dataclasses import dataclass
 from typing import Callable, Iterator
 
-from .factories import create_worker_engine, supported_worker_engines
+from ..contracts.errors import (
+    ENGINE_ERROR_CODES,
+    WORKER_FAILURE_ENVELOPE_VERSION,
+    EngineError,
+    WorkerFailureEnvelope,
+)
+from .spec import EngineWorkerSpec, create_worker_engine
 
 
 @dataclass(frozen=True)
@@ -30,16 +35,71 @@ class WorkerResult:
 class EngineProcessTimeoutError(TimeoutError):
     """模型 worker 在请求截止时间前停止产生结果。"""
 
+    code = "worker_timeout"
+
+
+def _protocol_error(engine_id: str, detail: str) -> EngineError:
+    return EngineError(
+        code="worker_protocol_failed",
+        message=f"{engine_id} worker 协议错误：{detail}",
+    )
+
+
+def _worker_result_from_raw(raw: object, *, engine_id: str) -> WorkerResult:
+    try:
+        result = raw if isinstance(raw, WorkerResult) else WorkerResult(*raw)
+    except (TypeError, ValueError) as exc:
+        raise _protocol_error(engine_id, "响应格式非法") from exc
+    if not isinstance(result.request_id, str) or not isinstance(result.kind, str):
+        raise _protocol_error(engine_id, "响应标识或类型非法")
+    return result
+
+
+def _engine_error_from_payload(
+    payload: object,
+    *,
+    engine_id: str,
+    legacy_code: str,
+) -> EngineError:
+    if isinstance(payload, WorkerFailureEnvelope):
+        if payload.version != WORKER_FAILURE_ENVELOPE_VERSION:
+            return _protocol_error(engine_id, f"未知错误协议版本：{payload.version}")
+        if payload.code not in ENGINE_ERROR_CODES:
+            return _protocol_error(engine_id, f"未知错误码：{payload.code}")
+        if not isinstance(payload.message, str):
+            return _protocol_error(engine_id, "错误消息类型非法")
+        return EngineError(code=payload.code, message=payload.message)
+    if isinstance(payload, str):
+        return EngineError(code=legacy_code, message=payload)
+    return _protocol_error(engine_id, f"错误载荷类型非法：{type(payload).__name__}")
+
+
+def _child_failure(code: str, exc: BaseException) -> WorkerFailureEnvelope:
+    return WorkerFailureEnvelope(
+        version=WORKER_FAILURE_ENVELOPE_VERSION,
+        code=code,
+        message=f"{type(exc).__name__}: {exc}",
+    )
+
+
+def _initial_worker_failure_code(engine: object | None) -> str:
+    """Classify lazy construction separately from commands on an owned engine."""
+
+    if engine is None:
+        return "engine_load_failed"
+    return "engine_runtime_failed"
+
 
 class EngineProcessClient:
     """为推理运行时懒启动的单次执行子进程。"""
 
-    def __init__(self, *, config, engine_id: str, requested_provider: str | None = None, logger=None):
-        if engine_id not in supported_worker_engines():
-            raise ValueError(f"通用 worker 暂不支持该模型：{engine_id}")
+    def __init__(self, *, config, spec: EngineWorkerSpec, logger=None):
+        if not isinstance(spec, EngineWorkerSpec):
+            raise TypeError("EngineProcessClient requires an EngineWorkerSpec")
         self.config = config
-        self.engine_id = engine_id
-        self.requested_provider = requested_provider
+        self.spec = spec
+        self.engine_id = spec.engine_id
+        self.requested_provider = spec.requested_provider
         self.logger = logger
         self._ctx = mp.get_context("spawn")
         self._command_queue = None
@@ -123,7 +183,7 @@ class EngineProcessClient:
                     self.logger.debug("重置 cancel_flag 失败", exc_info=True)
             self._process = self._ctx.Process(
                 target=_worker_main,
-                args=(self.config, self.engine_id, self.requested_provider,
+                args=(self.config, self.spec,
                       self._command_queue, self._result_queue, self._cancel_flag),
                 name=f"angevoice-{self.engine_id}-worker",
                 daemon=True,
@@ -187,9 +247,14 @@ class EngineProcessClient:
             request_id = self._send(command, payload or {})
             result = self._wait_for(request_id, timeout=timeout)
             if result.kind == "error":
-                raise RuntimeError(str(result.payload))
+                legacy_code = "engine_load_failed" if command == "load" else "engine_runtime_failed"
+                raise _engine_error_from_payload(
+                    result.payload,
+                    engine_id=self.engine_id,
+                    legacy_code=legacy_code,
+                )
             if result.kind != "result":
-                raise RuntimeError(f"{self.engine_id} worker 返回了未知消息：{result.kind}")
+                raise _protocol_error(self.engine_id, f"未知消息类型：{result.kind}")
             if command in {"load", "metadata"} and isinstance(result.payload, dict):
                 self._last_metadata = dict(result.payload)
                 self._loaded = bool(self._last_metadata.get("loaded", command == "load"))
@@ -243,7 +308,7 @@ class EngineProcessClient:
                         raw = self._require_result_queue().get(timeout=min(0.2, remaining))
                     except queue.Empty:
                         continue
-                    result = WorkerResult(*raw)
+                    result = _worker_result_from_raw(raw, engine_id=self.engine_id)
                     if result.request_id != request_id:
                         deadline = time.monotonic() + idle_timeout
                         if self.logger:
@@ -265,7 +330,7 @@ class EngineProcessClient:
                                 raw = self._require_result_queue().get(timeout=min(0.05, max(0.001, tail_remaining)))
                             except queue.Empty:
                                 break
-                            tail = WorkerResult(*raw)
+                            tail = _worker_result_from_raw(raw, engine_id=self.engine_id)
                             if tail.request_id != request_id:
                                 if self.logger:
                                     self.logger.debug(
@@ -286,10 +351,14 @@ class EngineProcessClient:
                                 tail_deadline = min(time.monotonic() + queue_done_grace, tail_hard_deadline)
                                 continue
                             if tail.kind == "error":
-                                raise RuntimeError(str(tail.payload))
+                                raise _engine_error_from_payload(
+                                    tail.payload,
+                                    engine_id=self.engine_id,
+                                    legacy_code="engine_runtime_failed",
+                                )
                             if tail.kind == "done":
                                 continue
-                            raise RuntimeError(f"{self.engine_id} worker 返回了未知流式尾帧：{tail.kind}")
+                            raise _protocol_error(self.engine_id, f"未知流式尾帧类型：{tail.kind}")
                         return
                     if result.kind == "event":
                         if drain_deadline is None:
@@ -297,9 +366,13 @@ class EngineProcessClient:
                         continue
                     if result.kind == "error":
                         completed = True
-                        raise RuntimeError(str(result.payload))
+                        raise _engine_error_from_payload(
+                            result.payload,
+                            engine_id=self.engine_id,
+                            legacy_code="engine_runtime_failed",
+                        )
                     completed = True
-                    raise RuntimeError(f"{self.engine_id} worker 返回了未知流式消息：{result.kind}")
+                    raise _protocol_error(self.engine_id, f"未知流式消息类型：{result.kind}")
             finally:
                 if not completed:
                     self._soft_cancel_worker(stream_generation)
@@ -324,7 +397,7 @@ class EngineProcessClient:
                 raw = self._require_result_queue().get(timeout=min(0.2, remaining))
             except queue.Empty:
                 continue
-            result = WorkerResult(*raw)
+            result = _worker_result_from_raw(raw, engine_id=self.engine_id)
             if result.request_id == request_id:
                 return result
 
@@ -336,7 +409,10 @@ class EngineProcessClient:
             if was_loaded:
                 self._unhealthy = True
                 self._last_exit_reason = f"worker 异常退出，退出码：{code}"
-            raise RuntimeError(f"{self.engine_id} worker 异常退出，退出码：{code}")
+            raise EngineError(
+                code="worker_process_failed",
+                message=f"{self.engine_id} worker 异常退出，退出码：{code}",
+            )
 
     def _require_result_queue(self):
         if self._result_queue is None:
@@ -379,14 +455,15 @@ def _stream_accepts_cancel_check(method) -> bool:
     return any(item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values())
 
 
-def _worker_main(config, engine_id: str, requested_provider: str | None,
+def _worker_main(config, spec: EngineWorkerSpec,
                  command_queue, result_queue, cancel_flag) -> None:
+    engine_id = spec.engine_id
     engine = None
 
     def ensure_engine():
         nonlocal engine
         if engine is None:
-            engine = create_worker_engine(config, engine_id, requested_provider)
+            engine = create_worker_engine(config, spec)
             engine.load()
         return engine
 
@@ -402,8 +479,10 @@ def _worker_main(config, engine_id: str, requested_provider: str | None,
             finally:
                 result_queue.put((request_id, "result", {"ok": True}))
             return
+        failure_code = _initial_worker_failure_code(engine)
         try:
             current = ensure_engine()
+            failure_code = "engine_runtime_failed"
             if command == "load":
                 result_queue.put((request_id, "result", current.metadata()))
             elif command == "metadata":
@@ -463,6 +542,14 @@ def _worker_main(config, engine_id: str, requested_provider: str | None,
             elif command == "get_voices":
                 result_queue.put((request_id, "result", current.get_voices()))
             else:
-                raise RuntimeError(f"未知 {engine_id} worker 命令：{command}")
+                result_queue.put((
+                    request_id,
+                    "error",
+                    WorkerFailureEnvelope(
+                        version=WORKER_FAILURE_ENVELOPE_VERSION,
+                        code="worker_protocol_failed",
+                        message=f"未知 {engine_id} worker 命令：{command}",
+                    ),
+                ))
         except BaseException as exc:  # noqa: BLE001
-            result_queue.put((request_id, "error", f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"))
+            result_queue.put((request_id, "error", _child_failure(failure_code, exc)))

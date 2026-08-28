@@ -7,6 +7,7 @@ from typing import Any, Callable
 from ...config import TTSConfig
 from ...moss_engine import MossNanoEngine
 from ..base import EngineCapabilities, ProviderStatus
+from ..registry import EngineRegistry
 
 
 class MossAdapter:
@@ -101,20 +102,7 @@ class MossAdapter:
         )
 
     def capabilities(self) -> EngineCapabilities:
-        text_rules_mode = str(getattr(self._cfg, "moss_apply_angevoice_rules", "auto")).strip().lower()
-        return EngineCapabilities(
-            modes=("preset_voice", "voice_clone"),
-            voice_clone_supported=True,
-            speed_supported=False,
-            text_rules_enabled=text_rules_mode != "false",
-            requires_prompt_audio=False,
-            requires_prompt_text=False,
-            supports_saved_voice_profiles=False,
-            stream_mode="native",
-            provider_fallback=True,
-            sample_rate=48000,
-            channels=2,
-        )
+        return EngineRegistry.capabilities_for(self.public_id, self._cfg, provider=self._requested_provider)
 
     def _provider_status(self, metadata: dict[str, Any]) -> ProviderStatus:
         actual = str(metadata.get("actual_provider") or self._requested_provider).strip().lower()

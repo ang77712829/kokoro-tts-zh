@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import logging
 import sys
 import threading
@@ -42,6 +43,9 @@ class EngineManager:
         self._active_counts: dict[str, int] = {}
         self._pending_rebuild: set[str] = set()
         self._idle_unload_callback = None
+        self._closed = False
+        self._closing = False
+        self._close_condition = threading.Condition(self._lock)
         if initial_engine is not None:
             self._engines["kokoro"] = initial_engine
             self._current_model_id = "kokoro"
@@ -53,6 +57,10 @@ class EngineManager:
     @property
     def current_model_id(self) -> str:
         return self._current_model_id
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("EngineManager is closed")
 
     def bind_voice_profile_service(self, service) -> None:
         """绑定支持配置档案适配器使用的唯一配置档案所有者。"""
@@ -140,6 +148,162 @@ class EngineManager:
             self._idle_timer.cancel()
             self._idle_timer = None
 
+    @staticmethod
+    def _unload_accepts_force(unload) -> bool:
+        """Return whether *unload* explicitly accepts the shutdown force keyword."""
+
+        try:
+            signature = inspect.signature(unload)
+        except (TypeError, ValueError):
+            # An opaque callable is invoked once with the current contract. Its
+            # exceptions must not be interpreted as evidence of a legacy shape.
+            return True
+        try:
+            signature.bind(force=False)
+        except TypeError:
+            return False
+        return True
+
+    def _close_engine(self, model_id: str, engine, *, force: bool) -> bool:
+        unload = getattr(engine, "unload", None)
+        if not callable(unload):
+            return True
+        try:
+            if self._unload_accepts_force(unload):
+                unload(force=force)
+            else:
+                unload()
+            return True
+        except Exception:
+            logger.warning("应用关闭时模型释放失败：%s", model_id, exc_info=True)
+        return False
+
+    def _begin_close_all(self) -> tuple[list[tuple[str, object]], set[str]]:
+        with self._close_condition:
+            self._closed = True
+            while self._closing:
+                self._close_condition.wait()
+            if not self._engines:
+                self.stop_idle_timer()
+                return [], set()
+            self._closing = True
+            self.stop_idle_timer()
+            self._idle_unload_callback = None
+            self._pending_rebuild.clear()
+            engines = list(self._engines.items())
+            active = {
+                model_id
+                for model_id, _engine in engines
+                if self._active_count(model_id) > 0
+            }
+            return engines, active
+
+    def _request_shutdown_cancellation(
+        self,
+        engines: list[tuple[str, object]],
+        active: set[str],
+    ) -> None:
+        for model_id, engine in engines:
+            if model_id not in active:
+                continue
+            soft_cancel = getattr(engine, "soft_cancel", None)
+            if not callable(soft_cancel):
+                continue
+            try:
+                soft_cancel()
+            except Exception:
+                logger.warning("应用关闭时模型取消失败：%s", model_id, exc_info=True)
+
+    def _shutdown_drain_seconds(self) -> float:
+        try:
+            return max(
+                0.0,
+                float(
+                    getattr(
+                        self.cfg,
+                        "engine_process_stream_drain_seconds",
+                        0.0,
+                    )
+                    or 0.0
+                ),
+            )
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _wait_for_shutdown_drain(self, active: set[str]) -> set[str]:
+        deadline = time.monotonic() + self._shutdown_drain_seconds()
+        while active:
+            with self._lock:
+                active = {
+                    model_id
+                    for model_id in active
+                    if self._active_count(model_id) > 0
+                }
+            remaining = deadline - time.monotonic()
+            if not active or remaining <= 0:
+                break
+            time.sleep(min(0.05, remaining))
+        return active
+
+    def _release_shutdown_snapshot(
+        self,
+        engines: list[tuple[str, object]],
+    ) -> tuple[set[str], set[str]]:
+        succeeded: set[str] = set()
+        failed: set[str] = set()
+        for model_id, engine in engines:
+            with self._lock:
+                force = self._active_count(model_id) > 0
+            released = self._close_engine(model_id, engine, force=force)
+            (succeeded if released else failed).add(model_id)
+        return succeeded, failed
+
+    def _finish_close_all(
+        self,
+        engines: list[tuple[str, object]],
+        succeeded: set[str],
+    ) -> None:
+        with self._close_condition:
+            for model_id, engine in engines:
+                if model_id not in succeeded:
+                    continue
+                if self._engines.get(model_id) is engine:
+                    self._engines.pop(model_id, None)
+                self._active_counts.pop(model_id, None)
+                self._last_used.pop(model_id, None)
+            self._closing = False
+            self._close_condition.notify_all()
+
+    def close_all(self) -> bool:
+        """Drain active work and release every engine owned by this manager.
+
+        Returns ``True`` only when no engine ownership remains. Failed engines
+        stay owned so a later idempotent call can retry their cleanup.
+        """
+
+        engines, active = self._begin_close_all()
+        if not engines:
+            return True
+        succeeded: set[str] = set()
+        failed: set[str] = set()
+        try:
+            self._request_shutdown_cancellation(engines, active)
+            self._wait_for_shutdown_drain(active)
+            succeeded, failed = self._release_shutdown_snapshot(engines)
+        except Exception:
+            failed.update(model_id for model_id, _engine in engines if model_id not in succeeded)
+            logger.exception("应用关闭屏障发生未预期清理异常")
+        finally:
+            self._finish_close_all(engines, succeeded)
+
+        if failed:
+            logger.error(
+                "应用关闭屏障未能释放全部模型，保留所有权以便重试：%s",
+                ", ".join(sorted(failed)),
+            )
+        with self._lock:
+            return not failed and not self._engines
+
     def resolve_model_id(self, model_id: str | None):
         """将公共和旧版模型标识符解析为一个规范的产品 ID。"""
         default_id = getattr(self, "_current_model_id", "") or self.cfg.default_model or "kokoro"
@@ -168,6 +332,7 @@ class EngineManager:
         self._ensure_resolution_enabled(resolution)
         unload_previous = self.cfg.model_unload_on_switch if unload_previous is None else bool(unload_previous)
         with self._lock:
+            self._ensure_open()
             self._touch_model(target_id)
             previous_id = self._current_model_id
             unloaded_previous = False
@@ -211,6 +376,7 @@ class EngineManager:
         # 保持 switch/load/active-count 注册原子性。switch_model 和
         # get_engine 可能重入上方的 RLock。
         with self._lock:
+            self._ensure_open()
             self._touch_model(target_id)
             if target_id != self._current_model_id and self.cfg.model_unload_on_switch:
                 self.switch_model(model_id or target_id, unload_previous=True, load=True)
@@ -228,17 +394,26 @@ class EngineManager:
             yield engine
         finally:
             with self._lock:
-                current = self._active_count(target_id)
-                self._active_counts[target_id] = max(0, current - 1)
-                self._touch_model(target_id)
-                if self._active_counts[target_id] == 0 and target_id in self._pending_rebuild:
-                    logger.info("模型 %s 请求结束，执行待重建", target_id)
+                if self._closed and target_id not in self._engines:
+                    # A force close may finish before the borrower reaches this
+                    # finally block. Do not resurrect bookkeeping for ownership
+                    # that the shutdown barrier already released.
+                    self._active_counts.pop(target_id, None)
+                    self._last_used.pop(target_id, None)
                     self._pending_rebuild.discard(target_id)
-                    try:
-                        self.drop_model(target_id, force=True, raise_if_busy=False)
-                    except Exception:
-                        self._pending_rebuild.add(target_id)
-                        logger.warning("执行待重建失败，保留待重建标记：%s", target_id, exc_info=True)
+                else:
+                    current = self._active_count(target_id)
+                    self._active_counts[target_id] = max(0, current - 1)
+                    if not self._closed:
+                        self._touch_model(target_id)
+                        if self._active_counts[target_id] == 0 and target_id in self._pending_rebuild:
+                            logger.info("模型 %s 请求结束，执行待重建", target_id)
+                            self._pending_rebuild.discard(target_id)
+                            try:
+                                self.drop_model(target_id, force=True, raise_if_busy=False)
+                            except Exception:
+                                self._pending_rebuild.add(target_id)
+                                logger.warning("执行待重建失败，保留待重建标记：%s", target_id, exc_info=True)
 
     def _unload_other_loaded_models(self, target_id: str) -> None:
         """默认保留一个热运行时以保护 NAS 内存/显存预算。"""
@@ -255,6 +430,7 @@ class EngineManager:
         effective_provider_hint = provider_hint or resolution.provider_hint
         self._ensure_resolution_enabled(resolution)
         with self._lock:
+            self._ensure_open()
             engine = self._engines.get(target_id)
             needs_load = bool(load and (engine is None or not bool(getattr(engine, "is_loaded", False))))
             unloaded_for_target = False

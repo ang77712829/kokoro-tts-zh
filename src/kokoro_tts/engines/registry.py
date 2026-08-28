@@ -9,7 +9,6 @@ from fastapi import HTTPException
 
 from ..config import TTSConfig
 from ..config_ids import MOSS_CPU_MODEL_IDS, MOSS_CUDA_MODEL_IDS, MOSS_GENERIC_MODEL_IDS
-from .adapters import KokoroAdapter, MossAdapter
 from .base import EngineCapabilities, EngineSpec, ModelResolution
 from .parameters import EngineParameterSchema
 from .provider_policy import ProviderPolicy
@@ -83,8 +82,12 @@ class EngineRegistry:
 
     def create_engine(self, model_id: str, cfg: TTSConfig, *, provider_hint: str | None = None, voice_profile_store=None):
         if model_id == "kokoro":
+            from .adapters.kokoro import KokoroAdapter
+
             return KokoroAdapter(cfg)
         if model_id == "moss":
+            from .adapters.moss import MossAdapter
+
             provider = provider_hint or self._configured_moss_provider(cfg, cfg.enabled_models)
             if provider == "cuda" and not bool(getattr(cfg, "moss_cuda_enabled", True)):
                 raise HTTPException(status_code=404, detail="MOSS CUDA provider is disabled")
@@ -98,10 +101,19 @@ class EngineRegistry:
             return ZipVoiceEngine(cfg, profile_store=voice_profile_store, requested_provider=provider)
         raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
 
-    def capabilities_for(self, spec: EngineSpec, cfg: TTSConfig) -> EngineCapabilities:
+    @staticmethod
+    def capabilities_for(
+        spec: EngineSpec | str,
+        cfg: TTSConfig,
+        *,
+        provider: str | None = None,
+    ) -> EngineCapabilities:
         # 不能仅为渲染目录就实例化运行时。MOSS 在构造时创建 worker/executor 状态，
         # 每次 /health 或 /v1/models 请求都会泄漏。
-        if spec.id == "kokoro":
+        model_id = spec.id if isinstance(spec, EngineSpec) else str(spec or "")
+        backend = spec.backend if isinstance(spec, EngineSpec) else ""
+        requested_provider = spec.provider if isinstance(spec, EngineSpec) else str(provider or "")
+        if model_id == "kokoro":
             return EngineCapabilities(
                 modes=("preset_voice",),
                 voice_clone_supported=False,
@@ -111,7 +123,7 @@ class EngineRegistry:
                 sample_rate=int(getattr(cfg, "sample_rate", 24000)),
                 channels=1,
             )
-        if spec.id == "moss" or spec.backend == "moss-tts-nano-onnx":
+        if model_id == "moss" or backend == "moss-tts-nano-onnx":
             text_rules_mode = str(getattr(cfg, "moss_apply_angevoice_rules", "auto")).strip().lower()
             return EngineCapabilities(
                 modes=("preset_voice", "voice_clone"),
@@ -125,7 +137,7 @@ class EngineRegistry:
                 sample_rate=48000,
                 channels=2,
             )
-        if spec.id == "zipvoice" or spec.backend in {"zipvoice-distill-onnx-int8", "zipvoice-distill-pytorch-cuda"}:
+        if model_id == "zipvoice" or backend in {"zipvoice-distill-onnx-int8", "zipvoice-distill-pytorch-cuda"}:
             return EngineCapabilities(
                 modes=("voice_clone", "saved_voice_profile"),
                 voice_clone_supported=True,
@@ -135,7 +147,7 @@ class EngineRegistry:
                 requires_prompt_text=True,
                 supports_saved_voice_profiles=True,
                 stream_mode="segmented",
-                provider_fallback=spec.provider == "cuda",
+                provider_fallback=requested_provider == "cuda",
                 sample_rate=24000,
                 channels=1,
             )

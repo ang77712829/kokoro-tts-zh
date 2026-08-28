@@ -13,16 +13,24 @@ from kokoro_tts.admin_config_schema import load_runtime_config
 from kokoro_tts.config import TTSConfig
 from kokoro_tts.engines.parameters import EngineParameter, EngineParameterSchema
 from kokoro_tts.moss.process_worker import MossProcessClient
-from kokoro_tts.workers import EngineProcessClient, supported_worker_engines
+from kokoro_tts.workers import EngineProcessClient, EngineWorkerSpec
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_generic_worker_factory_seam_is_extension_oriented():
-    assert {"kokoro", "zipvoice"}.issubset(set(supported_worker_engines()))
+def _test_worker_factory(_config: object, _provider: str | None) -> object:
+    return object()
+
+
+def test_generic_worker_spec_seam_is_extension_oriented():
+    spec = EngineWorkerSpec("future-engine", _test_worker_factory)
+    client = EngineProcessClient(config=TTSConfig(), spec=spec)
+    assert client.spec is spec
     with pytest.raises(ValueError):
-        EngineProcessClient(config=TTSConfig(), engine_id="unregistered")
+        EngineWorkerSpec("", _test_worker_factory)
+    with pytest.raises(TypeError):
+        EngineWorkerSpec("future-engine", None)  # type: ignore[arg-type]
 
 
 def test_generic_worker_distinguishes_idle_from_unexpected_loaded_exit():
@@ -32,7 +40,10 @@ def test_generic_worker_distinguishes_idle_from_unexpected_loaded_exit():
         def is_alive(self):
             return False
 
-    client = EngineProcessClient(config=TTSConfig(), engine_id="kokoro")
+    client = EngineProcessClient(
+        config=TTSConfig(),
+        spec=EngineWorkerSpec("kokoro", _test_worker_factory),
+    )
     assert client.is_healthy is True  # 未加载时表示主动空闲，不算异常退出。
     client._process = DeadProcess()
     client._loaded = True

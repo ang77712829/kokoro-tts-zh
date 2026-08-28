@@ -19,6 +19,7 @@ Studio capability 驱动的录音、上传、Profile 试听/保存/删除 UI
 
 ```python
 from ..base import EngineCapabilities, ProviderStatus
+from ..registry import EngineRegistry
 
 class ExampleAdapter:
     public_id = "example"
@@ -31,17 +32,10 @@ class ExampleAdapter:
         self.profile_store = profile_store
 
     def capabilities(self) -> EngineCapabilities:
-        return EngineCapabilities(
-            modes=("voice_clone", "saved_voice_profile"),
-            voice_clone_supported=True,
-            requires_prompt_audio=True,
-            requires_prompt_text=True,
-            supports_saved_voice_profiles=True,
-            speed_supported=True,
-            stream_mode="segmented",
-            provider_fallback=True,
-            sample_rate=24000,
-            channels=1,
+        return EngineRegistry.capabilities_for(
+            self.public_id,
+            self.cfg,
+            provider=self.requested_provider,
         )
 
     def metadata(self) -> dict:
@@ -60,7 +54,7 @@ class ExampleAdapter:
 ## 接入步骤
 
 1. 在 `engines/adapters/` 新增 adapter；包装稳定 runtime，不把实现参数泄漏给公共路由。
-2. 在 `EngineRegistry` 注册唯一 canonical ID 与稳定产品展示名。
+2. 在 `EngineRegistry` 注册唯一 canonical ID、稳定产品展示名与静态 per-product capability 值。Registry 是 capability 值的唯一 owner；adapter 的 `capabilities()` 只是协议投影，不得复制另一套静态声明。
 3. 在 `ProviderPolicy` 注册 CPU/GPU/fallback 决策；Provider 变化不得形成多个 Studio 模型名。
 4. 有专属生成参数时，仅在 `EngineParameterSchema` 注册字段；前端将依据 schema 动态渲染，HTTP/WS 会统一发送。
 5. 支持保存参考音色时，向 `VoiceProfileService.register_store(engine_id, store, requires_reference=...)` 注册 store；需要参考录音推荐文本时，再调用 `register_recommended_prompts(engine_id, prompts)`；随后自动复用：
@@ -72,7 +66,7 @@ POST /v1/reference-audio/{engine}/preview
 GET /v1/voice-profiles/{engine}/{voice_id}/reference.wav
 ```
 
-6. 声明 `supports_saved_voice_profiles`、`requires_prompt_audio`、`requires_prompt_text` 等 capability 后，Studio 的网页录音、上传、保存/试听/删除流程直接复用该模型，无需新增前端模型分支。
+6. Registry 声明 `supports_saved_voice_profiles`、`requires_prompt_audio`、`requires_prompt_text` 等 capability 后，adapter、runtime metadata、status/API 与 Studio 可以投影或消费这些值，但都不是新的 canonical owner。Studio 的网页录音、上传、保存/试听/删除流程随后直接复用该模型，无需新增前端模型分支。
 7. 实现资产状态/修复 provider，并将运行状态接入统一资源/诊断 envelope。
 8. 添加 contract、provider/fallback、Profile、HTTP/WS、取消与资源测试。
 
@@ -96,16 +90,16 @@ GET /v1/voice-profiles/{engine}/{voice_id}/reference.wav
 
 ```text
 workers/process_worker.py    EngineProcessClient：启动、请求串行、流式事件、取消、退出与异常状态
-workers/factories.py         子进程 runtime factory 注册表
+workers/spec.py              EngineWorkerSpec：spawn-safe runtime construction contract
 engines/adapters/*           稳定产品 adapter 与 capabilities/provider/status 映射
 ```
 
 新增可隔离模型的最小步骤：
 
-1. 在 `workers/factories.py` 注册 runtime factory；factory 只在 Worker 内创建真实模型实例。
-2. 新增 adapter，通过 `EngineProcessClient(config, engine_id=<canonical_id>, requested_provider=...)` 转发加载、生成、流式和释放；线程内运行可作为明确可选的调试/兼容路径。
+1. 在具体引擎 owner 中声明一个顶层、可 pickle 的 runtime factory；不得把 concrete engine import 放回 `workers/**`。
+2. 新增 adapter，在隔离路径构造 `EngineWorkerSpec(engine_id=<canonical_id>, factory=<trusted top-level factory>, requested_provider=...)`，并通过 `EngineProcessClient(config, spec=...)` 转发加载、生成、流式和释放；线程内运行可作为明确可选的调试/兼容路径。
 3. 产品注册层只在 `create_engine()` 真正实例化该模型时延迟导入 native runtime；不得在 `engines/__init__.py`、`engines/adapters/__init__.py` 或 registry 模块顶层提前导入会反向依赖 `engines.base` 的模型实现，以免形成循环导入。
-4. 在 `EngineRegistry`、`ProviderPolicy` 和动态参数 schema 注册产品能力、provider 与参数。
+4. 在 `EngineRegistry`、`ProviderPolicy` 和动态参数 schema 分别注册静态产品能力、provider 与参数；adapter 不得再维护第二套静态 capability literal。
 5. 有参考音频/Profile 能力时接入 `VoiceProfileService`，不复制路由或 Studio 表单。
 6. 在资源状态中透出 `worker_pid`、`worker_alive`、`worker_healthy`、`worker_last_exit_reason` 和 provider 数据。
 7. 添加单模型唤醒/释放、流式取消、异常退出重启、三模型或多模型轮换后的 RSS/VRAM 回落测试。
@@ -117,6 +111,8 @@ Worker 设计约束：
 每次重新启动必须新建命令和结果队列，不能复用被强杀进程的队列；
 正常空闲退出属于 healthy，已加载 Worker 意外退出才记录为 unhealthy；
 强制取消和释放必须能终止卡死 Worker，不被普通请求锁阻塞。
+WorkerSpec factory 必须是产品 owner 提供的可信顶层 callable，禁止由请求输入指定 module path；
+worker 基础设施只消费 spec protocol，不允许 import 或判断具体 engine 类型。
 ```
 
 因此，后续模型扩展不需要在公共 HTTP/WebSocket 路由里新增按模型分支，也不需要修改 Kokoro、MOSS 或 ZipVoice 的稳定推理实现。

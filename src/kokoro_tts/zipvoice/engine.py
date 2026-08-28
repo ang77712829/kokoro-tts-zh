@@ -10,14 +10,25 @@ from typing import Any, Callable
 
 from ..audio import encode_audio_segment
 from ..engines.base import EngineCapabilities, ProviderStatus
+from ..engines.registry import EngineRegistry
 from ..text_segmenter import segment_text_natural
 from ..validation import no_synthesizable_text_frame, prepare_text_for_synthesis, websocket_error_frame_from_http
 from fastapi import HTTPException
-from ..workers import EngineProcessClient
+from ..workers import EngineProcessClient, EngineWorkerSpec
 from .assets import ZipVoiceAssetManager
 from .profiles import ZipVoiceProfileStore
 
 logger = logging.getLogger(__name__)
+
+
+def _create_zipvoice_worker_engine(config: object, requested_provider: str | None) -> "ZipVoiceEngine":
+    """Build the concrete ZipVoice runtime inside an isolated worker."""
+
+    return ZipVoiceEngine(
+        config,
+        requested_provider=requested_provider,
+        process_isolation=False,
+    )
 
 
 class ZipVoiceEngine:
@@ -30,7 +41,19 @@ class ZipVoiceEngine:
         self._process_isolated = configured if process_isolation is None else bool(process_isolation)
         self.profiles = profile_store or ZipVoiceProfileStore(cfg)
         self.assets = ZipVoiceAssetManager(cfg)
-        self._worker = EngineProcessClient(config=cfg, engine_id="zipvoice", requested_provider=self.requested_provider, logger=logger) if self._process_isolated else None
+        self._worker = (
+            EngineProcessClient(
+                config=cfg,
+                spec=EngineWorkerSpec(
+                    engine_id="zipvoice",
+                    factory=_create_zipvoice_worker_engine,
+                    requested_provider=self.requested_provider,
+                ),
+                logger=logger,
+            )
+            if self._process_isolated
+            else None
+        )
         self._cpu_runtime = None
         self._cuda_runtime = None
         self.runtime = None
@@ -155,12 +178,10 @@ class ZipVoiceEngine:
                 self._worker.soft_cancel()
 
     def capabilities(self) -> EngineCapabilities:
-        return EngineCapabilities(
-            modes=("voice_clone", "saved_voice_profile"), voice_clone_supported=True,
-            speed_supported=True, text_rules_enabled=True, requires_prompt_audio=True,
-            requires_prompt_text=True, supports_saved_voice_profiles=True,
-            stream_mode="segmented", provider_fallback=self.requested_provider == "cuda",
-            sample_rate=24000, channels=1,
+        return EngineRegistry.capabilities_for(
+            self.public_id,
+            self.cfg,
+            provider=self.requested_provider,
         )
 
     def metadata(self) -> dict[str, Any]:

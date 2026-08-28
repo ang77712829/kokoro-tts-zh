@@ -40,9 +40,23 @@ from .moss_runtime.audio import (
 )
 from .moss_runtime.prompt import prompt_audio_cache_key
 # MOSS 现在统一使用通用 EngineProcessClient，与 Kokoro/ZipVoice 一致。
-from .workers.process_worker import EngineProcessClient, EngineProcessTimeoutError
+from .workers import EngineProcessClient, EngineWorkerSpec
+from .workers.process_worker import EngineProcessTimeoutError
 
 logger = logging.getLogger(__name__)
+
+
+def _create_moss_worker_engine(config: object, requested_provider: str | None) -> "MossNanoEngine":
+    """Build the concrete MOSS runtime inside an isolated worker."""
+
+    provider = str(requested_provider or "cpu").strip().lower()
+    return MossNanoEngine(
+        config,
+        execution_provider=provider,
+        engine_id="moss",
+        process_isolation=False,
+    )
+
 
 class MossNanoEngine(MossStreamingMixin):
     """OpenMOSS 官方 ONNX runtime 的 AngeVoice 适配器。"""
@@ -232,12 +246,15 @@ class MossNanoEngine(MossStreamingMixin):
         """在独立子进程中加载 MOSS runtime。
 
         使用统一的 EngineProcessClient（与 Kokoro/ZipVoice 相同的基础设施）。
-        engine_id 必须为 "moss"，对应 workers/factories.py 中注册的工厂。
+        具体 runtime factory 由 MOSS owner 通过 EngineWorkerSpec 提供。
         """
         self._process_client = EngineProcessClient(
             config=self.config,
-            engine_id="moss",
-            requested_provider=self.execution_provider,
+            spec=EngineWorkerSpec(
+                engine_id="moss",
+                factory=_create_moss_worker_engine,
+                requested_provider=self.execution_provider,
+            ),
             logger=logger,
         )
         try:

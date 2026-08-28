@@ -293,7 +293,7 @@ def test_first_party_modules_have_no_module_load_cycles() -> None:
     assert not _strongly_connected_components(_module_level_graph())
 
 
-def test_concrete_engine_worker_imports_stay_inside_legacy_factory_seam() -> None:
+def test_worker_infrastructure_has_no_concrete_engine_imports() -> None:
     concrete_targets = {
         "kokoro_tts.engine",
         "kokoro_tts.moss_engine",
@@ -316,6 +316,4 @@ def test_concrete_engine_worker_imports_stay_inside_legacy_factory_seam() -> Non
         if matched:
             references[path.relative_to(PACKAGE_ROOT).as_posix()] = matched
 
-    assert references == {
-        "workers/factories.py": concrete_targets,
-    }, "Phase 4 will remove this final legacy factory seam; do not spread it"
+    assert references == {}, "WorkerSpec factories belong to concrete product owners"

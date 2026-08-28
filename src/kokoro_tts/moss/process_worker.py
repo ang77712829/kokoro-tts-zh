@@ -17,6 +17,7 @@ from ..workers.process_worker import (
     EngineProcessClient as _EngineProcessClient,
     EngineProcessTimeoutError as _EngineProcessTimeoutError,
 )
+from ..workers.spec import EngineWorkerSpec
 
 
 class MossProcessTimeoutError(_EngineProcessTimeoutError):
@@ -27,21 +28,30 @@ class MossProcessClient(_EngineProcessClient):
     """已废弃：请使用 ``workers.process_worker.EngineProcessClient``。
 
     保留一个薄兼容层，避免旧导入路径或测试代码实例化时直接崩溃。
-    新代码应改为 ``EngineProcessClient(engine_id="moss", requested_provider=...)``。
+    新代码应由 MOSS owner 创建 ``EngineWorkerSpec`` 后传给
+    ``EngineProcessClient``。
     """
 
     def __init__(self, *args, provider: str | None = None, engine_id: str = "moss", requested_provider: str | None = None, **kwargs):
         warnings.warn(
-            "MossProcessClient is deprecated; use EngineProcessClient(engine_id='moss') instead.",
+            "MossProcessClient is deprecated; use EngineProcessClient(spec=...) instead.",
             DeprecationWarning,
             stacklevel=2,
         )
+        if "spec" not in kwargs:
+            from ..moss_engine import _create_moss_worker_engine
+
+            kwargs["spec"] = EngineWorkerSpec(
+                engine_id=engine_id,
+                factory=_create_moss_worker_engine,
+                requested_provider=requested_provider or provider,
+            )
         if args:
             # 旧代码通常使用关键字；若传了位置参数，保持 EngineProcessClient 的
             # Python TypeError 行为，避免错误地猜测参数语义。
-            super().__init__(*args, engine_id=engine_id, requested_provider=requested_provider or provider, **kwargs)
+            super().__init__(*args, **kwargs)
             return
-        super().__init__(engine_id=engine_id, requested_provider=requested_provider or provider, **kwargs)
+        super().__init__(**kwargs)
 
 
 __all__ = [
