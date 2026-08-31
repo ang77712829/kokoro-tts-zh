@@ -322,43 +322,11 @@ class EngineProcessClient:
                         completed = True
                         if drain_deadline is not None:
                             return
-                        tail_deadline = time.monotonic() + queue_done_grace
-                        tail_hard_deadline = time.monotonic() + queue_done_hard_limit
-                        while time.monotonic() < tail_deadline and time.monotonic() < tail_hard_deadline:
-                            tail_remaining = tail_deadline - time.monotonic()
-                            try:
-                                raw = self._require_result_queue().get(timeout=min(0.05, max(0.001, tail_remaining)))
-                            except queue.Empty:
-                                break
-                            tail = _worker_result_from_raw(raw, engine_id=self.engine_id)
-                            if tail.request_id != request_id:
-                                if self.logger:
-                                    self.logger.debug(
-                                        "%s worker: 丢弃过期尾帧消息 %s",
-                                        self.engine_id, tail.request_id,
-                                    )
-                                continue
-                            if tail.kind == "event":
-                                if drain_deadline is None:
-                                    yield tail.payload
-                                if isinstance(tail.payload, dict) and str(tail.payload.get("type") or "") in {
-                                    "done",
-                                    "cancelled",
-                                    "error",
-                                    "segment_error",
-                                }:
-                                    return
-                                tail_deadline = min(time.monotonic() + queue_done_grace, tail_hard_deadline)
-                                continue
-                            if tail.kind == "error":
-                                raise _engine_error_from_payload(
-                                    tail.payload,
-                                    engine_id=self.engine_id,
-                                    legacy_code="engine_runtime_failed",
-                                )
-                            if tail.kind == "done":
-                                continue
-                            raise _protocol_error(self.engine_id, f"未知流式尾帧类型：{tail.kind}")
+                        yield from self._drain_stream_tail(
+                            request_id,
+                            queue_done_grace=queue_done_grace,
+                            queue_done_hard_limit=queue_done_hard_limit,
+                        )
                         return
                     if result.kind == "event":
                         if drain_deadline is None:
@@ -376,6 +344,50 @@ class EngineProcessClient:
             finally:
                 if not completed:
                     self._soft_cancel_worker(stream_generation)
+
+    def _drain_stream_tail(
+        self,
+        request_id: str,
+        *,
+        queue_done_grace: float,
+        queue_done_hard_limit: float,
+    ) -> Iterator[dict]:
+        tail_deadline = time.monotonic() + queue_done_grace
+        tail_hard_deadline = time.monotonic() + queue_done_hard_limit
+        while time.monotonic() < tail_deadline and time.monotonic() < tail_hard_deadline:
+            tail_remaining = tail_deadline - time.monotonic()
+            try:
+                raw = self._require_result_queue().get(timeout=min(0.05, max(0.001, tail_remaining)))
+            except queue.Empty:
+                break
+            tail = _worker_result_from_raw(raw, engine_id=self.engine_id)
+            if tail.request_id != request_id:
+                if self.logger:
+                    self.logger.debug(
+                        "%s worker: 丢弃过期尾帧消息 %s",
+                        self.engine_id, tail.request_id,
+                    )
+                continue
+            if tail.kind == "event":
+                yield tail.payload
+                if isinstance(tail.payload, dict) and str(tail.payload.get("type") or "") in {
+                    "done",
+                    "cancelled",
+                    "error",
+                    "segment_error",
+                }:
+                    return
+                tail_deadline = min(time.monotonic() + queue_done_grace, tail_hard_deadline)
+                continue
+            if tail.kind == "error":
+                raise _engine_error_from_payload(
+                    tail.payload,
+                    engine_id=self.engine_id,
+                    legacy_code="engine_runtime_failed",
+                )
+            if tail.kind == "done":
+                continue
+            raise _protocol_error(self.engine_id, f"未知流式尾帧类型：{tail.kind}")
 
     def _send(self, command: str, payload: dict) -> str:
         self.start()
