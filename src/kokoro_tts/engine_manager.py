@@ -10,18 +10,14 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import Any, Iterator
 
 from fastapi import HTTPException
 
 from .config import TTSConfig
 from .config_ids import moss_voice_catalog
-from .engine import TTSEngine
-from .moss_engine import MossNanoEngine
 from .engines import EngineRegistry, EngineSpec
-
-if TYPE_CHECKING:
-    from .zipvoice.engine import ZipVoiceEngine
+from .engines.base import EngineAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -369,7 +365,7 @@ class EngineManager:
             }
 
     @contextmanager
-    def borrow(self, model_id: str | None = None) -> Iterator[TTSEngine | MossNanoEngine | "ZipVoiceEngine"]:
+    def borrow(self, model_id: str | None = None) -> Iterator[EngineAdapter]:
         resolution = self.resolve_model_id(model_id)
         target_id = resolution.canonical_id
         self._ensure_resolution_enabled(resolution)
