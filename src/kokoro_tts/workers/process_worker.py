@@ -467,6 +467,54 @@ def _stream_accepts_cancel_check(method) -> bool:
     return any(item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values())
 
 
+def _run_child_stream_phase(current, payload, request_id, result_queue, cancel_flag) -> None:
+    payload.pop("cancel_check", None)
+    cancel_generation = int(payload.pop("_cancel_generation", 0) or 0)
+
+    def worker_cancelled() -> bool:
+        try:
+            return bool(cancel_generation and int(cancel_flag.value) == cancel_generation)
+        except Exception:
+            return False
+
+    if _stream_accepts_cancel_check(current.synthesize_stream):
+        payload["cancel_check"] = worker_cancelled
+    saw_terminal_event = False
+    audio_chunks = 0
+    total_segments = None
+    cancelled_by_generation = False
+    for item in current.synthesize_stream(**payload):
+        # 在每个 yield 的帧之间检查当前请求自己的取消代次。
+        # 旧 WebSocket 的迟到取消不会命中新请求，避免正常长文本被误截断。
+        if worker_cancelled():
+            cancelled_by_generation = True
+            break
+        if isinstance(item, dict):
+            item_type = str(item.get("type") or "")
+            if item_type == "started":
+                total_segments = item.get("segments")
+            audio_chunks += int(item_type == "audio")
+            saw_terminal_event |= item_type in {"done", "cancelled", "error", "segment_error"}
+        result_queue.put((request_id, "event", item))
+    if not saw_terminal_event and not cancelled_by_generation and not worker_cancelled():
+        result_queue.put((
+            request_id,
+            "event",
+            {"type": "segment_error", "message": "流式合成提前结束，未收到语义终止帧"},
+        ))
+        done_payload = {"type": "done", "total_audio_chunks": audio_chunks}
+        if total_segments is not None:
+            done_payload["total_segments"] = total_segments
+        result_queue.put((request_id, "event", done_payload))
+    # 始终发送终止消息，以便消费者释放请求锁。
+    result_queue.put((request_id, "done", None))
+    try:
+        if cancel_generation and int(cancel_flag.value) == cancel_generation:
+            cancel_flag.value = 0
+    except Exception:
+        pass  # 子进程内无法用 logger
+
+
 def _worker_main(config, spec: EngineWorkerSpec,
                  command_queue, result_queue, cancel_flag) -> None:
     engine_id = spec.engine_id
@@ -504,53 +552,7 @@ def _worker_main(config, spec: EngineWorkerSpec,
             elif command == "synthesize_array":
                 result_queue.put((request_id, "result", current.synthesize_array(**payload)))
             elif command == "synthesize_stream":
-                payload.pop("cancel_check", None)
-                cancel_generation = int(payload.pop("_cancel_generation", 0) or 0)
-
-                def worker_cancelled() -> bool:
-                    try:
-                        return bool(cancel_generation and int(cancel_flag.value) == cancel_generation)
-                    except Exception:
-                        return False
-
-                if _stream_accepts_cancel_check(current.synthesize_stream):
-                    payload["cancel_check"] = worker_cancelled
-                saw_terminal_event = False
-                audio_chunks = 0
-                total_segments = None
-                cancelled_by_generation = False
-                for item in current.synthesize_stream(**payload):
-                    # 在每个 yield 的帧之间检查当前请求自己的取消代次。
-                    # 旧 WebSocket 的迟到取消不会命中新请求，避免正常长文本被误截断。
-                    if worker_cancelled():
-                        cancelled_by_generation = True
-                        break
-                    if isinstance(item, dict):
-                        item_type = str(item.get("type") or "")
-                        if item_type == "started":
-                            total_segments = item.get("segments")
-                        elif item_type == "audio":
-                            audio_chunks += 1
-                        elif item_type in {"done", "cancelled", "error", "segment_error"}:
-                            saw_terminal_event = True
-                    result_queue.put((request_id, "event", item))
-                if not saw_terminal_event and not cancelled_by_generation and not worker_cancelled():
-                    result_queue.put((
-                        request_id,
-                        "event",
-                        {"type": "segment_error", "message": "流式合成提前结束，未收到语义终止帧"},
-                    ))
-                    done_payload = {"type": "done", "total_audio_chunks": audio_chunks}
-                    if total_segments is not None:
-                        done_payload["total_segments"] = total_segments
-                    result_queue.put((request_id, "event", done_payload))
-                # 始终发送终止消息，以便消费者释放请求锁。
-                result_queue.put((request_id, "done", None))
-                try:
-                    if cancel_generation and int(cancel_flag.value) == cancel_generation:
-                        cancel_flag.value = 0
-                except Exception:
-                    pass  # 子进程内无法用 logger
+                _run_child_stream_phase(current, payload, request_id, result_queue, cancel_flag)
             elif command == "get_voices":
                 result_queue.put((request_id, "result", current.get_voices()))
             else:

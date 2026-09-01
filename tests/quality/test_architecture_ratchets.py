@@ -38,7 +38,6 @@ COMPLEXITY_BASELINE = {
     "kokoro_tts.routes.status_parts.models.model_catalog_snapshot": 19,
     "kokoro_tts.validation._looks_like_non_natural_text": 20,
     "kokoro_tts.workers.process_worker.EngineProcessClient.stream": 23,
-    "kokoro_tts.workers.process_worker._worker_main": 27,
     "kokoro_tts.ws.session.TtsWebSocketSession._parse_and_validate_first_message": 21,
     "kokoro_tts.ws.streaming.StreamingLoopMixin._producer": 19,
     "kokoro_tts.ws.streaming.StreamingLoopMixin._send_loop": 26,
