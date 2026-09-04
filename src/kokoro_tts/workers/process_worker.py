@@ -523,8 +523,16 @@ def _worker_main(config, spec: EngineWorkerSpec,
     def ensure_engine():
         nonlocal engine
         if engine is None:
-            engine = create_worker_engine(config, spec)
-            engine.load()
+            candidate = create_worker_engine(config, spec)
+            try:
+                candidate.load()
+            except BaseException:
+                try:
+                    candidate.unload()
+                except BaseException:
+                    pass
+                raise
+            engine = candidate
         return engine
 
     while True:
